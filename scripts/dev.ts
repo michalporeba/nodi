@@ -1,12 +1,15 @@
 export {} // make this a module so top-level await works
+// Use the same bun binary that's running this script
+const bunBin = process.execPath
+
 // Runs both the API server and Vite dev server concurrently
-const api = Bun.spawn(['bun', '--hot', 'src/server/index.ts'], {
+const api = Bun.spawn([bunBin, '--hot', 'src/server/index.ts'], {
   stdout: 'inherit',
   stderr: 'inherit',
   env: { ...process.env, PORT: '3001' },
 })
 
-const client = Bun.spawn(['bunx', '--bun', 'vite'], {
+const client = Bun.spawn([bunBin, 'x', '--bun', 'vite'], {
   stdout: 'inherit',
   stderr: 'inherit',
 })
