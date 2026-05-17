@@ -87,11 +87,18 @@ export interface Claim {
   created_at: string
 }
 
+export interface EntitySearchLogEntry {
+  system: string
+  last_searched_at: string
+  result_count: number
+}
+
 export interface EntityDetail extends Entity {
   labels: Label[]
   external_ids: ExternalID[]
   claims: Claim[]
   mentions: MentionWithSource[]
+  search_logs: EntitySearchLogEntry[]
 }
 
 export interface SourceLink {
@@ -127,4 +134,21 @@ export interface CandidateLink {
   url: string
   title: string | null
   frequency: number
+}
+
+export interface RelHop {
+  claim_id: number
+  subject_id: number
+  property: string
+  object_id: number
+}
+
+export interface RelPath {
+  hops: RelHop[]
+  intermediate_id?: number
+}
+
+export interface RelationshipResult {
+  paths: RelPath[]
+  entities: Record<number, { id: number; type: string; primary_label: string }>
 }

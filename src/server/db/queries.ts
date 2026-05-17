@@ -44,11 +44,18 @@ export interface Entity {
   created_at: string
 }
 
+export interface EntitySearchLogEntry {
+  system: string
+  last_searched_at: string
+  result_count: number
+}
+
 export interface EntityDetail extends Entity {
   labels: Label[]
   external_ids: ExternalID[]
   claims: ClaimWithDetail[]
   mentions: MentionWithSource[]
+  search_logs: EntitySearchLogEntry[]
 }
 
 export interface Label {
@@ -376,7 +383,25 @@ export function getEntityDetail(id: number): EntityDetail | null {
     source_status: r.source_status as SourceStatus,
   }))
 
-  return { ...mapEntity(entityRow), labels, external_ids, claims, mentions }
+  const search_logs = (db.prepare('SELECT system, last_searched_at, result_count FROM EntitySearchLog WHERE entity_id = ?').all(id) as Record<string, unknown>[]).map(r => ({
+    system: r.system as string,
+    last_searched_at: r.last_searched_at as string,
+    result_count: r.result_count as number,
+  }))
+
+  return { ...mapEntity(entityRow), labels, external_ids, claims, mentions, search_logs }
+}
+
+export function recordEntitySearch(entityId: number, system: string, resultCount: number): void {
+  const db = getDb()
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO EntitySearchLog (entity_id, system, last_searched_at, result_count)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(entity_id, system) DO UPDATE SET
+      last_searched_at = excluded.last_searched_at,
+      result_count = excluded.result_count
+  `).run(entityId, system, now, resultCount)
 }
 
 export function createEntity(data: { type: EntityType; primary_label: string; language?: string }): Entity {
@@ -528,6 +553,100 @@ export function createClaim(data: {
 export function deleteClaim(id: number): void {
   const db = getDb()
   db.prepare('DELETE FROM Claim WHERE id = ?').run(id)
+}
+
+// ─── Relationship paths ───────────────────────────────────────────────────────
+
+export interface RelHop {
+  claim_id: number
+  subject_id: number
+  property: string
+  object_id: number
+}
+
+export interface RelPath {
+  hops: RelHop[]
+  intermediate_id?: number
+}
+
+export interface RelationshipResult {
+  paths: RelPath[]
+  entities: Record<number, { id: number; type: string; primary_label: string }>
+}
+
+export function findRelationshipPaths(a: number, b: number): RelationshipResult {
+  if (a === b) return { paths: [], entities: {} }
+  const db = getDb()
+
+  // Entity-valued claims touching a
+  const aEdges = db.prepare(`
+    SELECT id, subject_entity_id as subj, property, object_entity_id as obj
+    FROM Claim
+    WHERE object_entity_id IS NOT NULL
+      AND (subject_entity_id = ? OR object_entity_id = ?)
+  `).all(a, a) as Array<{ id: number; subj: number; property: string; obj: number }>
+
+  const paths: RelPath[] = []
+
+  // Direct hops (1-hop): claims directly connecting a and b
+  for (const e of aEdges) {
+    if ((e.subj === a && e.obj === b) || (e.subj === b && e.obj === a)) {
+      paths.push({ hops: [{ claim_id: e.id, subject_id: e.subj, property: e.property, object_id: e.obj }] })
+    }
+  }
+
+  // Intermediate candidates: the other endpoint of a-edges (excluding b and a itself)
+  const intermediates = new Set<number>()
+  for (const e of aEdges) {
+    const other = e.subj === a ? e.obj : e.subj
+    if (other !== a && other !== b) intermediates.add(other)
+  }
+
+  for (const x of intermediates) {
+    const xToBEdges = db.prepare(`
+      SELECT id, subject_entity_id as subj, property, object_entity_id as obj
+      FROM Claim
+      WHERE object_entity_id IS NOT NULL
+        AND ((subject_entity_id = ? AND object_entity_id = ?)
+          OR (subject_entity_id = ? AND object_entity_id = ?))
+    `).all(x, b, b, x) as Array<{ id: number; subj: number; property: string; obj: number }>
+
+    if (xToBEdges.length === 0) continue
+
+    const aToXEdges = aEdges.filter(e => (e.subj === a && e.obj === x) || (e.subj === x && e.obj === a))
+
+    for (const first of aToXEdges) {
+      for (const second of xToBEdges) {
+        paths.push({
+          hops: [
+            { claim_id: first.id, subject_id: first.subj, property: first.property, object_id: first.obj },
+            { claim_id: second.id, subject_id: second.subj, property: second.property, object_id: second.obj },
+          ],
+          intermediate_id: x,
+        })
+      }
+    }
+  }
+
+  // Resolve display info for all involved entities
+  const involved = new Set<number>([a, b])
+  for (const p of paths) {
+    if (p.intermediate_id) involved.add(p.intermediate_id)
+  }
+  const entities: RelationshipResult['entities'] = {}
+  if (involved.size > 0) {
+    const idList = [...involved]
+    const placeholders = idList.map(() => '?').join(',')
+    const rows = db.prepare(`
+      SELECT e.id, e.type,
+        COALESCE((SELECT l.value FROM Label l WHERE l.entity_id = e.id AND l.is_primary = 1 LIMIT 1), '(no label)') as primary_label
+      FROM Entity e
+      WHERE e.id IN (${placeholders})
+    `).all(...idList) as Array<{ id: number; type: string; primary_label: string }>
+    for (const r of rows) entities[r.id] = r
+  }
+
+  return { paths, entities }
 }
 
 // ─── Export queries ───────────────────────────────────────────────────────────

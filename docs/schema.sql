@@ -120,3 +120,19 @@ CREATE TABLE IF NOT EXISTS Claim (
 CREATE INDEX IF NOT EXISTS idx_claim_subject ON Claim(subject_entity_id);
 CREATE INDEX IF NOT EXISTS idx_claim_property ON Claim(property);
 CREATE INDEX IF NOT EXISTS idx_claim_object ON Claim(object_entity_id);
+
+-- ─── External search log ────────────────────────────────────────────────────
+
+-- Tracks reconciliation searches against external systems (Wikidata, etc.)
+-- so the UI can remember a search was already attempted without confirmation
+-- and avoid re-searching unnecessarily.
+CREATE TABLE IF NOT EXISTS EntitySearchLog (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id         INTEGER NOT NULL REFERENCES Entity(id) ON DELETE CASCADE,
+  system            TEXT NOT NULL,
+  last_searched_at  TEXT NOT NULL,
+  result_count      INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(entity_id, system)
+);
+
+CREATE INDEX IF NOT EXISTS idx_searchlog_entity ON EntitySearchLog(entity_id);

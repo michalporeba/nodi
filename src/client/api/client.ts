@@ -1,6 +1,6 @@
 import type {
   Source, Entity, EntityDetail, Label, ExternalID, Mention, Claim,
-  Match, SourceLink, WikidataCandidate, CandidateLink,
+  Match, SourceLink, WikidataCandidate, CandidateLink, RelationshipResult,
   EntityType, SourceStatus, SourceOrigin,
 } from './types'
 
@@ -108,6 +108,10 @@ export const api = {
     },
     confirm: (data: { entity_id: number; qid: string; wikipedia_en?: string | null; wikipedia_cy?: string | null }) =>
       post<EntityDetail>('/reconcile/wikidata/confirm', data),
+  },
+
+  relationships: {
+    find: (from: number, to: number) => get<RelationshipResult>(`/relationships?from=${from}&to=${to}`),
   },
 
   export: {

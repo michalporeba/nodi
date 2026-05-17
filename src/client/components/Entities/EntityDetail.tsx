@@ -60,11 +60,28 @@ function WikidataReconcile({ entity, onUpdated }: { entity: EntityDetailType; on
     </div>
   )
 
+  const priorSearch = entity.search_logs.find(s => s.system === 'wikidata') ?? null
+  const showPrior = priorSearch && !open && candidates.length === 0
+
   return (
     <div>
-      <button className="btn btn-secondary btn-sm" onClick={search} disabled={loading}>
-        {loading ? 'Searching…' : '🔍 Search Wikidata'}
-      </button>
+      {showPrior ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          <span style={{ color: '#94a3b8' }}>
+            Wikidata: searched {new Date(priorSearch!.last_searched_at).toLocaleString()} ·{' '}
+            {priorSearch!.result_count === 0
+              ? 'no results'
+              : `${priorSearch!.result_count} result${priorSearch!.result_count === 1 ? '' : 's'}, none selected`}
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={search} disabled={loading} style={{ alignSelf: 'flex-start' }}>
+            {loading ? 'Searching…' : '🔍 Search again'}
+          </button>
+        </div>
+      ) : (
+        <button className="btn btn-secondary btn-sm" onClick={search} disabled={loading}>
+          {loading ? 'Searching…' : '🔍 Search Wikidata'}
+        </button>
+      )}
       {error && <div className="error-msg" style={{ marginTop: 8 }}>{error}</div>}
       {open && candidates.length > 0 && (
         <div className="card" style={{ marginTop: 10 }}>

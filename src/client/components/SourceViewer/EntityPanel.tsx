@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api/client'
-import type { Source, Entity, EntityDetail, EntityType, WikidataCandidate } from '../../api/types'
+import type { Source, Entity, EntityDetail, EntityType, WikidataCandidate, RelationshipResult, RelHop, EntitySearchLogEntry } from '../../api/types'
 import { ENTITY_TYPES } from '../../api/types'
 
 // ─── Topic picker (used when no topic is set, or when changing) ───────────────
@@ -232,15 +232,23 @@ interface ActiveTopicSectionProps {
   source: Source
   focusedEntityId: number | null
   linkedEntityIds: number[]
+  linkedSurfaceForm: string | null
   onSwitch: (entityId: number) => void
   onClear: () => void
+  onLinkedAdded: (entityId: number) => void
 }
 
-export function ActiveTopicSection({ source, focusedEntityId, linkedEntityIds, onSwitch, onClear }: ActiveTopicSectionProps) {
+export function ActiveTopicSection({
+  source, focusedEntityId, linkedEntityIds, linkedSurfaceForm, onSwitch, onClear, onLinkedAdded,
+}: ActiveTopicSectionProps) {
   const pageTopicId = source.subject_confirmed ? source.subject_entity_id : null
   const activeEntityId = focusedEntityId ?? pageTopicId
   const isFocusing = focusedEntityId !== null && focusedEntityId !== pageTopicId
-  const showSwitcher = focusedEntityId !== null && linkedEntityIds.length > 1
+  const showSwitcher =
+    focusedEntityId !== null &&
+    linkedEntityIds.length >= 1 &&
+    linkedSurfaceForm !== null &&
+    linkedEntityIds.includes(focusedEntityId)
 
   if (activeEntityId === null) {
     return (
@@ -273,7 +281,10 @@ export function ActiveTopicSection({ source, focusedEntityId, linkedEntityIds, o
         <LinkedSwitcher
           linkedIds={linkedEntityIds}
           activeId={activeEntityId}
+          surfaceForm={linkedSurfaceForm!}
+          sourceId={source.id}
           onSwitch={onSwitch}
+          onAdded={onLinkedAdded}
         />
       )}
 
@@ -284,33 +295,148 @@ export function ActiveTopicSection({ source, focusedEntityId, linkedEntityIds, o
   )
 }
 
-// Small chip switcher when one mention links to multiple entities
-function LinkedSwitcher({ linkedIds, activeId, onSwitch }: {
+// Compact switcher for surface forms that map to multiple entities. Buttons
+// show only the entity type (the shared label is shown once, above), and there's
+// always a "+" affordance to attach another entity to the same surface form.
+function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, onAdded }: {
   linkedIds: number[]
   activeId: number
+  surfaceForm: string
+  sourceId: number
   onSwitch: (id: number) => void
+  onAdded: (entityId: number) => void
 }) {
   const [entities, setEntities] = useState<Entity[]>([])
+  const [adding, setAdding] = useState(false)
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState<Entity[]>([])
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     Promise.all(linkedIds.map(id => api.entities.get(id))).then(setEntities)
   }, [linkedIds.join(',')])
 
+  useEffect(() => {
+    if (!adding) return
+    const q = search.trim()
+    if (!q) { setResults([]); return }
+    const t = setTimeout(() => api.entities.list({ q }).then(setResults), 200)
+    return () => clearTimeout(t)
+  }, [search, adding])
+
+  async function addExisting(e: Entity) {
+    setBusy(true)
+    try {
+      // Ensure the entity carries the surface form as a label so future
+      // matches across sources catch it. Add as alias if not already present.
+      const detail = await api.entities.get(e.id)
+      const has = detail.labels.some(l => l.value.toLowerCase() === surfaceForm.toLowerCase())
+      if (!has) {
+        await api.labels.add(e.id, { value: surfaceForm, is_alias: true })
+      }
+      await api.mentions.create({ entity_id: e.id, source_id: sourceId, surface_form: surfaceForm })
+      onAdded(e.id)
+      setAdding(false)
+      setSearch('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addNew(type: EntityType) {
+    setBusy(true)
+    try {
+      const e = await api.entities.create({ type, primary_label: surfaceForm })
+      await api.mentions.create({ entity_id: e.id, source_id: sourceId, surface_form: surfaceForm })
+      onAdded(e.id)
+      setAdding(false)
+      setSearch('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (entities.length === 0) return null
 
+  // Distinguish duplicate types with a small numeric suffix
+  const typeCounts = new Map<string, number>()
+  for (const e of entities) typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1)
+
   return (
-    <div style={{ padding: '0 16px 8px', display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 11 }}>
-      <span style={{ color: '#94a3b8', alignSelf: 'center' }}>Same label →</span>
-      {entities.map(e => (
+    <div style={{ padding: '0 16px 8px', display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+        <span style={{ color: '#94a3b8' }}>"{surfaceForm}" →</span>
+        {entities.map(e => {
+          const isDup = (typeCounts.get(e.type) ?? 0) > 1
+          return (
+            <button
+              key={e.id}
+              className={`btn btn-sm ${e.id === activeId ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => onSwitch(e.id)}
+              style={{ padding: '2px 8px', fontSize: 11 }}
+              title={e.primary_label}
+            >
+              {e.type}{isDup && <span style={{ opacity: 0.7, marginLeft: 4 }}>#{e.id}</span>}
+            </button>
+          )
+        })}
         <button
-          key={e.id}
-          className={`btn btn-sm ${e.id === activeId ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => onSwitch(e.id)}
-          style={{ padding: '2px 8px', fontSize: 11 }}
+          className="btn btn-ghost btn-sm"
+          onClick={() => setAdding(a => !a)}
+          style={{ padding: '2px 6px', fontSize: 11 }}
+          title={adding ? 'Cancel' : 'Add another entity for this surface form'}
         >
-          {e.primary_label} <span style={{ opacity: 0.7, marginLeft: 4 }}>{e.type}</span>
+          {adding ? '×' : '+'}
         </button>
-      ))}
+      </div>
+
+      {adding && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '2px 0 4px' }}>
+          <input
+            className="input"
+            style={{ fontSize: 11, padding: '3px 6px' }}
+            placeholder="search existing…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            disabled={busy}
+            autoFocus
+          />
+          {results.length > 0 && (
+            <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--content-border)', borderRadius: 4 }}>
+              {results.slice(0, 5).map(e => {
+                const already = linkedIds.includes(e.id)
+                return (
+                  <div
+                    key={e.id}
+                    className="entity-option"
+                    onClick={() => !already && !busy && addExisting(e)}
+                    style={{ opacity: already ? 0.5 : 1, cursor: already ? 'default' : 'pointer' }}
+                  >
+                    <div>
+                      <div className="entity-option-label">{e.primary_label}</div>
+                      <div className="entity-option-meta">{e.type}{already && ' · already linked'}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+            <span style={{ color: '#94a3b8' }}>+ new as:</span>
+            {ENTITY_TYPES.map(t => (
+              <button
+                key={t}
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '2px 6px', fontSize: 11 }}
+                onClick={() => addNew(t)}
+                disabled={busy}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -367,15 +493,193 @@ export function ActionsSection({ source, onUpdate, onConfirmAll }: ActionsSectio
   )
 }
 
+// ─── Relationship connector (page topic ↔ active topic) ──────────────────────
+
+interface RelationshipConnectorProps {
+  pageTopicId: number
+  activeEntityId: number
+  sourceId: number
+  reloadToken: number
+  onChanged: () => void
+  onSwitchActive: (entityId: number) => void
+}
+
+export function RelationshipConnector({
+  pageTopicId, activeEntityId, sourceId, reloadToken, onChanged, onSwitchActive,
+}: RelationshipConnectorProps) {
+  const [result, setResult] = useState<RelationshipResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [property, setProperty] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (pageTopicId === activeEntityId) { setResult(null); setLoading(false); return }
+    setLoading(true)
+    api.relationships.find(pageTopicId, activeEntityId)
+      .then(setResult)
+      .finally(() => setLoading(false))
+  }, [pageTopicId, activeEntityId, reloadToken])
+
+  async function addDirect() {
+    if (!property.trim()) return
+    setSaving(true)
+    try {
+      await api.claims.create({
+        subject_entity_id: pageTopicId,
+        property: property.trim(),
+        object_entity_id: activeEntityId,
+        source_id: sourceId,
+      })
+      setProperty('')
+      onChanged()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (pageTopicId === activeEntityId) return null
+  if (loading) return null
+
+  const paths = result?.paths ?? []
+  const entities = result?.entities ?? {}
+
+  return (
+    <div style={{ padding: '8px 16px', borderTop: '1px solid var(--content-border)', borderBottom: '1px solid var(--content-border)', display: 'flex', flexDirection: 'column', gap: 6, background: 'rgba(99,102,241,0.04)' }}>
+      <div className="section-heading" style={{ margin: 0 }}>Relationship</div>
+      {paths.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>No claim links these yet.</div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input
+              className="input"
+              style={{ fontSize: 11, flex: 1, padding: '3px 6px' }}
+              placeholder="property (e.g. cast_member)"
+              value={property}
+              onChange={e => setProperty(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addDirect() }}
+              disabled={saving}
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={addDirect}
+              disabled={saving || !property.trim()}
+              style={{ padding: '3px 8px', fontSize: 11 }}
+            >
+              {saving ? '…' : '+ Add'}
+            </button>
+          </div>
+          <div style={{ fontSize: 10, color: '#94a3b8' }}>
+            Saves: <em>topic</em> → property → <em>active</em>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {paths.map((p, i) => (
+            <PathRow
+              key={i}
+              hops={p.hops}
+              pageTopicId={pageTopicId}
+              activeEntityId={activeEntityId}
+              intermediateId={p.intermediate_id}
+              entities={entities}
+              onSwitchActive={onSwitchActive}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, onSwitchActive }: {
+  hops: RelHop[]
+  pageTopicId: number
+  activeEntityId: number
+  intermediateId?: number
+  entities: Record<number, { id: number; type: string; primary_label: string }>
+  onSwitchActive: (id: number) => void
+}) {
+  // Render: page → [intermediate →] active, with arrow direction per hop.
+  // For each hop, decide which direction it visually flows (down vs up) based on
+  // which side connects to the upper node in the chain.
+
+  function renderArrow(hop: RelHop, upperId: number, lowerId: number) {
+    const downward = hop.subject_id === upperId && hop.object_id === lowerId
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#475569', paddingLeft: 14 }}>
+        <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{downward ? '↓' : '↑'}</span>
+        <span style={{ fontFamily: 'monospace' }}>{hop.property}</span>
+      </div>
+    )
+  }
+
+  function entityChip(id: number, role: 'page' | 'intermediate' | 'active') {
+    const e = entities[id]
+    const label = e?.primary_label ?? `#${id}`
+    const type = e?.type ?? ''
+    const clickable = role === 'intermediate'
+    return (
+      <div
+        onClick={clickable ? () => onSwitchActive(id) : undefined}
+        title={clickable ? 'Make active topic' : undefined}
+        style={{
+          fontSize: 12,
+          fontWeight: role === 'active' ? 600 : 500,
+          color: role === 'page' ? '#64748b' : role === 'active' ? '#0f172a' : '#475569',
+          cursor: clickable ? 'pointer' : 'default',
+          textDecoration: clickable ? 'underline' : 'none',
+          textDecorationStyle: 'dotted',
+        }}
+      >
+        {label} <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>{type}</span>
+      </div>
+    )
+  }
+
+  if (hops.length === 1) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {entityChip(pageTopicId, 'page')}
+        {renderArrow(hops[0], pageTopicId, activeEntityId)}
+        {entityChip(activeEntityId, 'active')}
+      </div>
+    )
+  }
+
+  // 2-hop
+  const xId = intermediateId!
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {entityChip(pageTopicId, 'page')}
+      {renderArrow(hops[0], pageTopicId, xId)}
+      {entityChip(xId, 'intermediate')}
+      {renderArrow(hops[1], xId, activeEntityId)}
+      {entityChip(activeEntityId, 'active')}
+    </div>
+  )
+}
+
 // ─── Entity detail panel (used inside ActiveTopicSection) ─────────────────────
 
 interface WikidataSearchProps {
   entityId: number
   entityType: string
+  priorSearch: EntitySearchLogEntry | null
   onConfirmed: (entity: EntityDetail) => void
 }
 
-function WikidataSearch({ entityId, entityType, onConfirmed }: WikidataSearchProps) {
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime()
+  const diff = Date.now() - then
+  const day = 24 * 60 * 60 * 1000
+  if (diff < 60_000) return 'just now'
+  if (diff < 60 * 60_000) return `${Math.round(diff / 60_000)}m ago`
+  if (diff < day) return `${Math.round(diff / (60 * 60_000))}h ago`
+  if (diff < 30 * day) return `${Math.round(diff / day)}d ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+function WikidataSearch({ entityId, entityType, priorSearch, onConfirmed }: WikidataSearchProps) {
   const [candidates, setCandidates] = useState<WikidataCandidate[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -409,6 +713,20 @@ function WikidataSearch({ entityId, entityType, onConfirmed }: WikidataSearchPro
   }
 
   if (!candidates.length) {
+    if (priorSearch) {
+      const noResults = priorSearch.result_count === 0
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11 }}>
+          <span style={{ color: '#94a3b8' }}>
+            Wikidata: searched {formatRelative(priorSearch.last_searched_at)} ·{' '}
+            {noResults ? 'no results' : `${priorSearch.result_count} result${priorSearch.result_count === 1 ? '' : 's'}, none selected`}
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={search} disabled={loading} style={{ alignSelf: 'flex-start', padding: '2px 6px', fontSize: 11 }}>
+            {loading ? 'Searching…' : '🔍 Search again'}
+          </button>
+        </div>
+      )
+    }
     return (
       <button className="btn btn-secondary btn-sm" onClick={search} disabled={loading}>
         {loading ? 'Searching…' : '🔍 Search Wikidata'}
@@ -558,7 +876,12 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
         ))}
         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
           <button className="btn btn-ghost btn-sm" onClick={addExternalId}>+ add ID</button>
-          <WikidataSearch entityId={entity.id} entityType={entity.type} onConfirmed={setEntity} />
+          <WikidataSearch
+            entityId={entity.id}
+            entityType={entity.type}
+            priorSearch={entity.search_logs.find(s => s.system === 'wikidata') ?? null}
+            onConfirmed={setEntity}
+          />
         </div>
       </div>
 

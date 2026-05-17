@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import type { Source, Match, Entity, EntityType } from '../../api/types'
 import { ENTITY_TYPES } from '../../api/types'
 import { SourceContent } from './SourceContent'
-import { TopicSection, ActiveTopicSection, ActionsSection } from './EntityPanel'
+import { TopicSection, ActiveTopicSection, ActionsSection, RelationshipConnector } from './EntityPanel'
 
 // ─── Popovers ─────────────────────────────────────────────────────────────────
 
@@ -439,6 +439,8 @@ export function SourceViewer() {
   const [matchesLoading, setMatchesLoading] = useState(true)
   const [focusedEntityId, setFocusedEntityId] = useState<number | null>(null)
   const [linkedEntityIds, setLinkedEntityIds] = useState<number[]>([])
+  const [linkedSurfaceForm, setLinkedSurfaceForm] = useState<string | null>(null)
+  const [relReloadToken, setRelReloadToken] = useState(0)
   const [popover, setPopover] = useState<PopoverState | null>(null)
 
   useEffect(() => {
@@ -454,14 +456,16 @@ export function SourceViewer() {
     const m = await api.sources.matches(sourceId)
     setMatches(m)
     setPopover(null)
+    setRelReloadToken(t => t + 1)
   }, [sourceId])
 
   const handleMatchClick = useCallback((match: Match, x: number, y: number) => {
     const pos = { x, y }
     if (match.status === 'confirmed') {
-      // Single or multi: focus the first confirmed entity; multi case shows switcher in active block
+      // Single or multi: focus the first confirmed entity; switcher in active block lets user flip and add more
       setFocusedEntityId(match.confirmed_entity_ids[0] ?? null)
       setLinkedEntityIds(match.confirmed_entity_ids)
+      setLinkedSurfaceForm(match.surface_form)
       setPopover(null)
     } else if (match.status === 'suggested') {
       setPopover({ type: 'suggested', match, pos })
@@ -531,12 +535,27 @@ export function SourceViewer() {
       {/* Right: context panel */}
       <div style={{ width: 480, minWidth: 480, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--panel-bg)' }}>
         <TopicSection source={source} onUpdate={setSource} />
+        {pageTopicId !== null && focusedEntityId !== null && focusedEntityId !== pageTopicId && (
+          <RelationshipConnector
+            pageTopicId={pageTopicId}
+            activeEntityId={focusedEntityId}
+            sourceId={sourceId}
+            reloadToken={relReloadToken}
+            onChanged={() => setRelReloadToken(t => t + 1)}
+            onSwitchActive={id => setFocusedEntityId(id)}
+          />
+        )}
         <ActiveTopicSection
           source={source}
           focusedEntityId={focusedEntityId}
           linkedEntityIds={linkedEntityIds}
+          linkedSurfaceForm={linkedSurfaceForm}
           onSwitch={id => setFocusedEntityId(id)}
-          onClear={() => { setFocusedEntityId(null); setLinkedEntityIds([]) }}
+          onClear={() => { setFocusedEntityId(null); setLinkedEntityIds([]); setLinkedSurfaceForm(null) }}
+          onLinkedAdded={id => {
+            setLinkedEntityIds(prev => prev.includes(id) ? prev : [...prev, id])
+            reloadMatches()
+          }}
         />
         <ActionsSection
           source={source}

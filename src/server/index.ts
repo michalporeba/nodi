@@ -9,6 +9,7 @@ import mentionsRouter from './routes/mentions'
 import claimsRouter from './routes/claims'
 import reconcileRouter from './routes/reconcile'
 import exportRouter from './routes/export'
+import relationshipsRouter from './routes/relationships'
 
 // Initialize DB on startup
 import { initializeSchema } from './db/client'
@@ -28,6 +29,7 @@ api.route('/mentions', mentionsRouter)
 api.route('/claims', claimsRouter)
 api.route('/reconcile', reconcileRouter)
 api.route('/export', exportRouter)
+api.route('/relationships', relationshipsRouter)
 
 app.route('/api', api)
 

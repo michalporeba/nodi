@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getEntityDetail, addExternalId } from '../db/queries'
+import { getEntityDetail, addExternalId, recordEntitySearch } from '../db/queries'
 
 const WIKIDATA_SEARCH = 'https://www.wikidata.org/w/api.php'
 
@@ -104,6 +104,9 @@ router.get('/wikidata', async c => {
 
   try {
     const candidates = await searchWikidata(searchTerm, entityType)
+    if (entityId) {
+      recordEntitySearch(parseInt(entityId), 'wikidata', candidates.length)
+    }
     return c.json(candidates)
   } catch (err) {
     return c.json({ error: `Wikidata search failed: ${(err as Error).message}` }, 502)
