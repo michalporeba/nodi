@@ -19,6 +19,13 @@ router.get('/candidates', c => {
   return c.json(getCandidateLinks())
 })
 
+router.get('/by-url', c => {
+  const url = c.req.query('url')
+  if (!url) return c.json({ error: 'url is required' }, 400)
+  const source = getSourceByUrl(url)
+  return c.json(source ?? null)
+})
+
 router.post('/candidates/reject', async c => {
   const body = await c.req.json() as { url: string }
   if (!body.url) return c.json({ error: 'url is required' }, 400)

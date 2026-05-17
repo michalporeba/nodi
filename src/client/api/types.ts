@@ -109,7 +109,7 @@ export interface Match {
   label_value: string
   surface_form: string
   entity_ids: number[]
-  confirmed_entity_id: number | null
+  confirmed_entity_ids: number[]
   status: MatchStatus
   positions: Array<{ start: number; end: number }>
 }

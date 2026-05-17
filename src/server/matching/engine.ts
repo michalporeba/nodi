@@ -7,7 +7,7 @@ export interface Match {
   label_value: string
   surface_form: string
   entity_ids: number[]
-  confirmed_entity_id: number | null
+  confirmed_entity_ids: number[]
   status: MatchStatus
   positions: Array<{ start: number; end: number }>
 }
@@ -110,19 +110,15 @@ export async function runMatchingEngine(sourceId: number, content: string): Prom
   for (const { match, positions } of grouped.values()) {
     const { originalLabel, entityIds } = match
 
-    let status: MatchStatus
-    let confirmedEntityId: number | null = null
+    const confirmedIds = entityIds.filter(id => confirmedEntityIds.has(id))
 
-    if (entityIds.length > 1) {
+    let status: MatchStatus
+    if (confirmedIds.length >= 1) {
+      status = 'confirmed'
+    } else if (entityIds.length > 1) {
       status = 'ambiguous'
     } else {
-      const entityId = entityIds[0]
-      if (confirmedEntityIds.has(entityId)) {
-        status = 'confirmed'
-        confirmedEntityId = entityId
-      } else {
-        status = 'suggested'
-      }
+      status = 'suggested'
     }
 
     // Surface form: the actual text at the first position
@@ -133,7 +129,7 @@ export async function runMatchingEngine(sourceId: number, content: string): Prom
       label_value: originalLabel,
       surface_form: surfaceForm,
       entity_ids: entityIds,
-      confirmed_entity_id: confirmedEntityId,
+      confirmed_entity_ids: confirmedIds,
       status,
       positions,
     })

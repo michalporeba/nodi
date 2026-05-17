@@ -1,17 +1,329 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api/client'
-import type { Source, EntityDetail, WikidataCandidate } from '../../api/types'
+import type { Source, Entity, EntityDetail, EntityType, WikidataCandidate } from '../../api/types'
+import { ENTITY_TYPES } from '../../api/types'
 
-// ─── Source metadata panel ────────────────────────────────────────────────────
+// ─── Topic picker (used when no topic is set, or when changing) ───────────────
 
-interface SourcePanelProps {
+interface TopicPickerProps {
+  source: Source
+  suggestedText?: string
+  onSet: (updated: Source) => void
+  onCancel?: () => void
+}
+
+function TopicPicker({ source, suggestedText, onSet, onCancel }: TopicPickerProps) {
+  const [search, setSearch] = useState(suggestedText ?? source.title ?? '')
+  const [results, setResults] = useState<Entity[]>([])
+  const [loading, setLoading] = useState(false)
+  const [creating, setCreating] = useState<EntityType | null>(null)
+  const [description, setDescription] = useState(source.subject_description ?? '')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!search.trim()) { setResults([]); return }
+    setLoading(true)
+    const t = setTimeout(() => {
+      api.entities.list({ q: search }).then(setResults).finally(() => setLoading(false))
+    }, 200)
+    return () => clearTimeout(t)
+  }, [search])
+
+  async function pickEntity(entity: Entity) {
+    setBusy(true)
+    const updated = await api.sources.update(source.id, {
+      subject_entity_id: entity.id,
+      subject_confirmed: true,
+      subject_description: null,
+    })
+    onSet(updated)
+  }
+
+  async function createAndPick(type: EntityType) {
+    setBusy(true)
+    setCreating(type)
+    try {
+      const entity = await api.entities.create({ type, primary_label: search.trim() })
+      const updated = await api.sources.update(source.id, {
+        subject_entity_id: entity.id,
+        subject_confirmed: true,
+        subject_description: null,
+      })
+      onSet(updated)
+    } finally {
+      setCreating(null)
+      setBusy(false)
+    }
+  }
+
+  async function setAsDescription() {
+    if (!description.trim()) return
+    setBusy(true)
+    const updated = await api.sources.update(source.id, {
+      subject_entity_id: null,
+      subject_confirmed: false,
+      subject_description: description.trim(),
+    })
+    onSet(updated)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontSize: 12, color: '#64748b' }}>What is this page about?</div>
+
+      <input
+        className="input"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search or create entity…"
+        disabled={busy}
+        autoFocus
+      />
+
+      {loading && <div style={{ fontSize: 11, color: '#94a3b8' }}>Searching…</div>}
+
+      {results.length > 0 && (
+        <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--content-border)', borderRadius: 6 }}>
+          {results.slice(0, 8).map(e => (
+            <div
+              key={e.id}
+              className="entity-option"
+              onClick={() => !busy && pickEntity(e)}
+              style={{ cursor: busy ? 'wait' : 'pointer' }}
+            >
+              <div>
+                <div className="entity-option-label">{e.primary_label}</div>
+                <div className="entity-option-meta">
+                  {e.type} · {e.mention_count} mentions
+                  {e.wikidata_qid && <> · {e.wikidata_qid}</>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {search.trim() && !busy && (
+        <details>
+          <summary style={{ fontSize: 12, cursor: 'pointer', color: '#6366f1' }}>
+            + Create "{search.trim()}" as new entity
+          </summary>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+            {ENTITY_TYPES.map(t => (
+              <button
+                key={t}
+                className="btn btn-secondary btn-sm"
+                onClick={() => createAndPick(t)}
+                disabled={!!creating}
+              >
+                {creating === t ? '…' : t}
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
+
+      <div style={{ borderTop: '1px solid var(--content-border)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontSize: 12, color: '#64748b' }}>Or describe it (page is a reference, not about one thing):</div>
+        <input
+          className="input"
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+          placeholder="e.g. List of Welsh-language films"
+          disabled={busy}
+        />
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={setAsDescription}
+            disabled={busy || !description.trim()}
+          >
+            Set as description
+          </button>
+          {onCancel && (
+            <button className="btn btn-ghost btn-sm" onClick={onCancel} disabled={busy}>
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Topic section (page topic, sticky at top of side panel) ──────────────────
+
+interface TopicSectionProps {
+  source: Source
+  onUpdate: (source: Source) => void
+}
+
+export function TopicSection({ source, onUpdate }: TopicSectionProps) {
+  const [editing, setEditing] = useState(false)
+  const [entity, setEntity] = useState<Entity | null>(null)
+  const [loadingEntity, setLoadingEntity] = useState(false)
+
+  useEffect(() => {
+    if (source.subject_entity_id && source.subject_confirmed) {
+      setLoadingEntity(true)
+      api.entities.get(source.subject_entity_id)
+        .then(setEntity)
+        .finally(() => setLoadingEntity(false))
+    } else {
+      setEntity(null)
+    }
+  }, [source.subject_entity_id, source.subject_confirmed])
+
+  const hasTopic = (source.subject_entity_id && source.subject_confirmed) || !!source.subject_description
+
+  if (editing || !hasTopic) {
+    return (
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--content-border)', background: 'var(--panel-bg)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div className="section-heading" style={{ margin: 0 }}>Topic</div>
+          {hasTopic && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>✕</button>
+          )}
+        </div>
+        <TopicPicker
+          source={source}
+          suggestedText={source.title ?? undefined}
+          onSet={updated => { onUpdate(updated); setEditing(false) }}
+          onCancel={hasTopic ? () => setEditing(false) : undefined}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--content-border)', background: 'var(--panel-bg)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="section-heading" style={{ margin: '0 0 4px' }}>Topic</div>
+          {entity ? (
+            <>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{entity.primary_label}</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                <span className={`badge badge-${entity.type}`}>{entity.type}</span>
+                {entity.wikidata_qid && <span style={{ marginLeft: 6 }}>{entity.wikidata_qid}</span>}
+              </div>
+            </>
+          ) : loadingEntity ? (
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>Loading…</div>
+          ) : source.subject_description ? (
+            <div style={{ fontSize: 13, fontStyle: 'italic', color: '#475569' }}>
+              "{source.subject_description}"
+              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>(reference, no specific subject)</div>
+            </div>
+          ) : null}
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)} style={{ flexShrink: 0 }}>
+          ✎
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Active topic section ─────────────────────────────────────────────────────
+
+interface ActiveTopicSectionProps {
+  source: Source
+  focusedEntityId: number | null
+  linkedEntityIds: number[]
+  onSwitch: (entityId: number) => void
+  onClear: () => void
+}
+
+export function ActiveTopicSection({ source, focusedEntityId, linkedEntityIds, onSwitch, onClear }: ActiveTopicSectionProps) {
+  const pageTopicId = source.subject_confirmed ? source.subject_entity_id : null
+  const activeEntityId = focusedEntityId ?? pageTopicId
+  const isFocusing = focusedEntityId !== null && focusedEntityId !== pageTopicId
+  const showSwitcher = focusedEntityId !== null && linkedEntityIds.length > 1
+
+  if (activeEntityId === null) {
+    return (
+      <div className="scroll-y" style={{ flex: 1, padding: '16px' }}>
+        <div className="section-heading">Active topic</div>
+        <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0', lineHeight: 1.5 }}>
+          {source.subject_description
+            ? <>This page is a reference, not about one entity. Click a confirmed highlight to focus an entity and add claims about it.</>
+            : <>Set a topic above, or click a confirmed highlight to focus an entity.</>}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ padding: '10px 16px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div className="section-heading" style={{ margin: 0 }}>
+          Active topic
+          {!isFocusing && <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>(page topic)</span>}
+        </div>
+        {isFocusing && (
+          <button className="btn btn-ghost btn-sm" onClick={onClear} title="Back to page topic">
+            ← page
+          </button>
+        )}
+      </div>
+
+      {showSwitcher && (
+        <LinkedSwitcher
+          linkedIds={linkedEntityIds}
+          activeId={activeEntityId}
+          onSwitch={onSwitch}
+        />
+      )}
+
+      <div className="scroll-y" style={{ flex: 1 }}>
+        <EntityDetailPanel entityId={activeEntityId} sourceId={source.id} />
+      </div>
+    </div>
+  )
+}
+
+// Small chip switcher when one mention links to multiple entities
+function LinkedSwitcher({ linkedIds, activeId, onSwitch }: {
+  linkedIds: number[]
+  activeId: number
+  onSwitch: (id: number) => void
+}) {
+  const [entities, setEntities] = useState<Entity[]>([])
+
+  useEffect(() => {
+    Promise.all(linkedIds.map(id => api.entities.get(id))).then(setEntities)
+  }, [linkedIds.join(',')])
+
+  if (entities.length === 0) return null
+
+  return (
+    <div style={{ padding: '0 16px 8px', display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 11 }}>
+      <span style={{ color: '#94a3b8', alignSelf: 'center' }}>Same label →</span>
+      {entities.map(e => (
+        <button
+          key={e.id}
+          className={`btn btn-sm ${e.id === activeId ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => onSwitch(e.id)}
+          style={{ padding: '2px 8px', fontSize: 11 }}
+        >
+          {e.primary_label} <span style={{ opacity: 0.7, marginLeft: 4 }}>{e.type}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ─── Source actions (status + confirm-all + mark-done) ────────────────────────
+
+interface ActionsSectionProps {
   source: Source
   onUpdate: (source: Source) => void
   onConfirmAll: () => void
 }
 
-export function SourcePanel({ source, onUpdate, onConfirmAll }: SourcePanelProps) {
+export function ActionsSection({ source, onUpdate, onConfirmAll }: ActionsSectionProps) {
   const [updating, setUpdating] = useState(false)
 
   async function handleStatusChange(status: Source['status']) {
@@ -21,35 +333,16 @@ export function SourcePanel({ source, onUpdate, onConfirmAll }: SourcePanelProps
     setUpdating(false)
   }
 
-  async function handleMarkDone() {
-    await handleStatusChange('done')
-  }
-
   return (
-    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
-      <div className="section-heading">Source</div>
-
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
-          {source.title ?? '(untitled)'}
-        </div>
-        {source.url && (
-          <div style={{ fontSize: 11, color: '#64748b', wordBreak: 'break-all' }}>
-            <a href={source.url} target="_blank" rel="noreferrer" style={{ color: '#6366f1' }}>
-              {source.url}
-            </a>
-          </div>
-        )}
-      </div>
-
+    <div style={{ padding: '10px 16px', borderTop: '1px solid var(--content-border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: '#64748b' }}>Status:</span>
+        <span style={{ fontSize: 11, color: '#64748b' }}>Status:</span>
         <select
           className="select"
           value={source.status}
           onChange={e => handleStatusChange(e.target.value as Source['status'])}
           disabled={updating}
-          style={{ fontSize: 12, padding: '4px 8px' }}
+          style={{ fontSize: 12, padding: '3px 6px', flex: 1 }}
         >
           <option value="queued">Queued</option>
           <option value="active">Active</option>
@@ -57,20 +350,24 @@ export function SourcePanel({ source, onUpdate, onConfirmAll }: SourcePanelProps
           <option value="irrelevant">Irrelevant</option>
         </select>
       </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-        <button className="btn btn-secondary" onClick={onConfirmAll}>
-          ✓ Confirm all suggestions
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button className="btn btn-secondary btn-sm" onClick={onConfirmAll} style={{ flex: 1 }}>
+          ✓ Confirm suggestions
         </button>
-        <button className="btn btn-primary" onClick={handleMarkDone} disabled={source.status === 'done'}>
-          ✓ Mark as done
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => handleStatusChange('done')}
+          disabled={source.status === 'done'}
+          style={{ flex: 1 }}
+        >
+          ✓ Mark done
         </button>
       </div>
     </div>
   )
 }
 
-// ─── Entity detail panel ──────────────────────────────────────────────────────
+// ─── Entity detail panel (used inside ActiveTopicSection) ─────────────────────
 
 interface WikidataSearchProps {
   entityId: number
@@ -213,7 +510,7 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
   if (!entity) return <div className="empty-state"><p>Entity not found</p></div>
 
   return (
-    <div className="scroll-y" style={{ padding: '16px', height: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{entity.primary_label}</div>

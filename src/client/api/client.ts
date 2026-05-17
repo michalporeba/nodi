@@ -37,6 +37,7 @@ export const api = {
       return get<Source[]>(`/sources${qs ? `?${qs}` : ''}`)
     },
     get: (id: number) => get<Source>(`/sources/${id}`),
+    byUrl: (url: string) => get<Source | null>(`/sources/by-url?url=${encodeURIComponent(url)}`),
     fetch: (url: string, origin: SourceOrigin = 'manual') => post<Source>('/sources/fetch', { url, origin }),
     update: (id: number, data: Partial<Pick<Source, 'status' | 'title' | 'subject_entity_id' | 'subject_confirmed' | 'subject_description'>>) =>
       patch<Source>(`/sources/${id}`, data),

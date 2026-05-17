@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import type { Source, Match, Entity, EntityType } from '../../api/types'
 import { ENTITY_TYPES } from '../../api/types'
 import { SourceContent } from './SourceContent'
-import { SourcePanel, EntityDetailPanel } from './EntityPanel'
+import { TopicSection, ActiveTopicSection, ActionsSection } from './EntityPanel'
 
 // ─── Popovers ─────────────────────────────────────────────────────────────────
 
@@ -96,7 +96,8 @@ function AmbiguousPopover({ match, pos, sourceId, onConfirmed, onDismiss }: {
   onDismiss: () => void
 }) {
   const [entities, setEntities] = useState<Entity[]>([])
-  const [confirming, setConfirming] = useState<number | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     api.entities.list({}).then(all => {
@@ -104,9 +105,20 @@ function AmbiguousPopover({ match, pos, sourceId, onConfirmed, onDismiss }: {
     })
   }, [match.entity_ids])
 
-  async function confirm(entityId: number) {
-    setConfirming(entityId)
-    await api.mentions.create({ entity_id: entityId, source_id: sourceId, surface_form: match.surface_form })
+  function toggle(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function confirmSelected() {
+    if (selected.size === 0) return
+    setConfirming(true)
+    for (const entityId of selected) {
+      await api.mentions.create({ entity_id: entityId, source_id: sourceId, surface_form: match.surface_form })
+    }
     onConfirmed()
   }
 
@@ -114,109 +126,296 @@ function AmbiguousPopover({ match, pos, sourceId, onConfirmed, onDismiss }: {
     <PopoverWrapper pos={pos} onClose={onDismiss}>
       <div className="popover-header">"{match.surface_form}" could be:</div>
       <div className="popover-body" style={{ maxHeight: 280, overflowY: 'auto' }}>
-        {entities.map(e => (
-          <div key={e.id} className="entity-option" onClick={() => confirm(e.id)}>
-            <div style={{ flex: 1 }}>
-              <div className="entity-option-label">{e.primary_label}</div>
-              <div className="entity-option-meta">{e.type} · {e.mention_count} mentions</div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>Tick all that apply (a name can refer to multiple entities):</div>
+        {entities.map(e => {
+          const isSelected = selected.has(e.id)
+          return (
+            <div
+              key={e.id}
+              className="entity-option"
+              onClick={() => toggle(e.id)}
+              style={{ background: isSelected ? 'rgba(99, 102, 241, 0.08)' : undefined }}
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggle(e.id)}
+                onClick={e => e.stopPropagation()}
+                style={{ marginRight: 8 }}
+              />
+              <div style={{ flex: 1 }}>
+                <div className="entity-option-label">{e.primary_label}</div>
+                <div className="entity-option-meta">{e.type} · {e.mention_count} mentions</div>
+              </div>
             </div>
-            {confirming === e.id && <span style={{ fontSize: 12, color: '#94a3b8' }}>…</span>}
-          </div>
-        ))}
+          )
+        })}
+      </div>
+      <div className="popover-actions">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={confirmSelected}
+          disabled={confirming || selected.size === 0}
+        >
+          {confirming ? 'Confirming…' : `✓ Confirm ${selected.size || ''}`}
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onDismiss} disabled={confirming}>Cancel</button>
       </div>
     </PopoverWrapper>
   )
 }
 
-function ClassificationPopover({ text, pos, sourceId, onCreated, onDismiss }: {
+type LinkedEntity =
+  | { kind: 'existing'; entity: Entity }
+  | { kind: 'new'; type: EntityType }
+
+function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreated, onDismiss }: {
   text: string
   pos: PopoverPosition
   sourceId: number
+  activeEntityId: number | null
+  linkedUrl?: string
   onCreated: () => void
   onDismiss: () => void
 }) {
-  const [type, setType] = useState<EntityType>('Person')
-  const [search, setSearch] = useState(text)
+  const [activeEntity, setActiveEntity] = useState<Entity | null>(null)
+  const [property, setProperty] = useState('')
+  const [value, setValue] = useState(text)
   const [results, setResults] = useState<Entity[]>([])
-  const [creating, setCreating] = useState(false)
   const [loadingSearch, setLoadingSearch] = useState(false)
+  const [linked, setLinked] = useState<LinkedEntity[]>([])
+  const [saving, setSaving] = useState(false)
+  const [urlSource, setUrlSource] = useState<Source | null | undefined>(undefined)
+  const [queueing, setQueueing] = useState(false)
 
   useEffect(() => {
-    if (!search.trim()) { setResults([]); return }
+    if (!linkedUrl) { setUrlSource(undefined); return }
+    api.sources.byUrl(linkedUrl).then(setUrlSource).catch(() => setUrlSource(null))
+  }, [linkedUrl])
+
+  async function queueUrl() {
+    if (!linkedUrl) return
+    setQueueing(true)
+    try {
+      const src = await api.sources.fetch(linkedUrl)
+      setUrlSource(src)
+    } finally {
+      setQueueing(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeEntityId === null) { setActiveEntity(null); return }
+    api.entities.list({}).then(all => {
+      setActiveEntity(all.find(e => e.id === activeEntityId) ?? null)
+    })
+  }, [activeEntityId])
+
+  useEffect(() => {
+    if (!value.trim()) { setResults([]); return }
     setLoadingSearch(true)
-    const timer = setTimeout(() => {
-      api.entities.list({ q: search }).then(setResults).finally(() => setLoadingSearch(false))
+    const t = setTimeout(() => {
+      api.entities.list({ q: value }).then(setResults).finally(() => setLoadingSearch(false))
     }, 250)
-    return () => clearTimeout(timer)
-  }, [search])
+    return () => clearTimeout(t)
+  }, [value])
 
-  async function selectExisting(entity: Entity) {
-    await api.mentions.create({ entity_id: entity.id, source_id: sourceId, surface_form: text })
-    // Add alias if it differs from known labels
-    onCreated()
+  function addExisting(e: Entity) {
+    if (linked.some(l => l.kind === 'existing' && l.entity.id === e.id)) return
+    setLinked(p => [...p, { kind: 'existing', entity: e }])
   }
 
-  async function createNew() {
-    setCreating(true)
-    const entity = await api.entities.create({ type, primary_label: text })
-    await api.mentions.create({ entity_id: entity.id, source_id: sourceId, surface_form: text })
+  function addNew(type: EntityType) {
+    if (linked.some(l => l.kind === 'new' && l.type === type)) return
+    setLinked(p => [...p, { kind: 'new', type }])
+  }
+
+  function removeLinked(idx: number) {
+    setLinked(p => p.filter((_, i) => i !== idx))
+  }
+
+  const hasActive = activeEntityId !== null
+  const hasProperty = property.trim().length > 0
+  const hasEntities = linked.length > 0
+  const canSaveClaim = hasActive && hasProperty
+  const canSave = canSaveClaim || hasEntities
+
+  let actionLabel = 'Save'
+  if (canSaveClaim && hasEntities) actionLabel = `Save claim · ${linked.length} ${linked.length === 1 ? 'entity' : 'entities'}`
+  else if (canSaveClaim) actionLabel = 'Save claim'
+  else if (hasEntities) actionLabel = linked.length === 1 ? 'Save entity' : `Save ${linked.length} entities`
+
+  async function save() {
+    if (!canSave) return
+    setSaving(true)
+
+    // Resolve any 'new' entries by creating the entity
+    const resolved: Entity[] = []
+    for (const item of linked) {
+      if (item.kind === 'existing') resolved.push(item.entity)
+      else resolved.push(await api.entities.create({ type: item.type, primary_label: value.trim() }))
+    }
+
+    // Mentions: link the surface form to each entity in this source
+    for (const ent of resolved) {
+      await api.mentions.create({ entity_id: ent.id, source_id: sourceId, surface_form: text })
+    }
+
+    // Claims about the active topic
+    if (canSaveClaim) {
+      if (resolved.length === 0) {
+        await api.claims.create({
+          subject_entity_id: activeEntityId!,
+          property: property.trim(),
+          value: value.trim(),
+          source_id: sourceId,
+        })
+      } else {
+        for (const ent of resolved) {
+          await api.claims.create({
+            subject_entity_id: activeEntityId!,
+            property: property.trim(),
+            object_entity_id: ent.id,
+            source_id: sourceId,
+          })
+        }
+      }
+    }
+
     onCreated()
   }
 
   return (
     <PopoverWrapper pos={pos} onClose={onDismiss}>
-      <div className="popover-header">Mark as entity: "{text}"</div>
-      <div className="popover-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>Type:</span>
-          <select className="select" style={{ flex: 1, padding: '4px 8px', fontSize: 12 }} value={type} onChange={e => setType(e.target.value as EntityType)}>
-            {ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <input
-          className="input"
-          style={{ fontSize: 12 }}
-          placeholder="Search existing…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        {loadingSearch && <span style={{ fontSize: 12, color: '#94a3b8' }}>Searching…</span>}
-        <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-          {results.slice(0, 6).map(e => (
-            <div key={e.id} className="entity-option" onClick={() => selectExisting(e)}>
-              <div>
-                <div className="entity-option-label">{e.primary_label}</div>
-                <div className="entity-option-meta">{e.type}</div>
-              </div>
+      <div className="popover-header">
+        {hasActive
+          ? <>About <strong>{activeEntity?.primary_label ?? '…'}</strong></>
+          : <>"{text}"</>}
+      </div>
+      <div className="popover-body" style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 340 }}>
+        {linkedUrl && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px', background: 'rgba(99,102,241,0.06)', borderRadius: 4 }}>
+            <div style={{ fontSize: 11, color: '#64748b' }}>External link</div>
+            <div style={{ fontSize: 11, wordBreak: 'break-all', color: '#475569' }}>{linkedUrl}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              {urlSource === undefined ? (
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>Checking…</span>
+              ) : urlSource ? (
+                <span className={`badge badge-${urlSource.status}`} style={{ fontSize: 10 }}>
+                  In queue · {urlSource.status}
+                </span>
+              ) : (
+                <>
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>Not in queue</span>
+                  <button className="btn btn-secondary btn-sm" onClick={queueUrl} disabled={queueing} style={{ padding: '2px 8px', fontSize: 11 }}>
+                    {queueing ? '…' : '+ Add to queue'}
+                  </button>
+                </>
+              )}
             </div>
-          ))}
+          </div>
+        )}
+        {hasActive && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: '#64748b', width: 64 }}>Property</span>
+            <input
+              className="input"
+              style={{ fontSize: 12, flex: 1 }}
+              placeholder="e.g. cast_member, start_date"
+              value={property}
+              onChange={e => setProperty(e.target.value)}
+              autoFocus
+            />
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: '#64748b', width: 64 }}>Value</span>
+          <input
+            className="input"
+            style={{ fontSize: 12, flex: 1 }}
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            autoFocus={!hasActive}
+          />
+        </div>
+        {!hasActive && (
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>
+            No active topic — selection is saved as entities only (no claim).
+          </div>
+        )}
+
+        <div style={{ borderTop: '1px solid var(--content-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 11, color: '#64748b' }}>
+            {hasEntities
+              ? 'Linked entities (one claim per entity will be saved):'
+              : 'Add entities, or leave empty to save the value as a string.'}
+          </div>
+
+          {linked.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {linked.map((l, i) => (
+                <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.10)', borderRadius: 12, padding: '3px 10px', fontSize: 12 }}>
+                  {l.kind === 'existing'
+                    ? <>{l.entity.primary_label} <span style={{ color: '#94a3b8' }}>({l.entity.type})</span></>
+                    : <>+ new <span style={{ color: '#94a3b8' }}>({l.type})</span></>}
+                  <button
+                    onClick={() => removeLinked(i)}
+                    style={{ border: 'none', background: 'none', color: '#64748b', cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 14 }}
+                    aria-label="Remove"
+                  >×</button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {results.length > 0 && (
+            <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--content-border)', borderRadius: 4 }}>
+              {results.slice(0, 5).map(e => {
+                const already = linked.some(l => l.kind === 'existing' && l.entity.id === e.id)
+                return (
+                  <div
+                    key={e.id}
+                    className="entity-option"
+                    onClick={() => !already && addExisting(e)}
+                    style={{ opacity: already ? 0.5 : 1, cursor: already ? 'default' : 'pointer' }}
+                  >
+                    <div>
+                      <div className="entity-option-label">{e.primary_label}</div>
+                      <div className="entity-option-meta">{e.type}{already && ' · added'}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {loadingSearch && <span style={{ fontSize: 11, color: '#94a3b8' }}>Searching…</span>}
+
+          {value.trim() && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#64748b' }}>+ new as:</span>
+              {ENTITY_TYPES.map(t => {
+                const already = linked.some(l => l.kind === 'new' && l.type === t)
+                return (
+                  <button
+                    key={t}
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '2px 8px', fontSize: 11, opacity: already ? 0.4 : 1 }}
+                    onClick={() => addNew(t)}
+                    disabled={already}
+                  >
+                    {t}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
       <div className="popover-actions">
-        <button className="btn btn-primary btn-sm" onClick={createNew} disabled={creating}>
-          {creating ? 'Creating…' : '+ Create new'}
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={!canSave || saving}>
+          {saving ? 'Saving…' : `✓ ${actionLabel}`}
         </button>
-        <button className="btn btn-ghost btn-sm" onClick={onDismiss}>Cancel</button>
-      </div>
-    </PopoverWrapper>
-  )
-}
-
-function LinkPopover({ url, pos, onQueue, onDismiss }: {
-  url: string
-  pos: PopoverPosition
-  onQueue: () => void
-  onDismiss: () => void
-}) {
-  return (
-    <PopoverWrapper pos={pos} onClose={onDismiss}>
-      <div className="popover-header">External link</div>
-      <div className="popover-body">
-        <div style={{ fontSize: 12, wordBreak: 'break-all', color: '#64748b' }}>{url}</div>
-      </div>
-      <div className="popover-actions">
-        <button className="btn btn-primary btn-sm" onClick={onQueue}>Add to queue</button>
-        <button className="btn btn-ghost btn-sm" onClick={onDismiss}>Dismiss</button>
+        <button className="btn btn-ghost btn-sm" onClick={onDismiss} disabled={saving}>Cancel</button>
       </div>
     </PopoverWrapper>
   )
@@ -227,8 +426,7 @@ function LinkPopover({ url, pos, onQueue, onDismiss }: {
 type PopoverState =
   | { type: 'suggested'; match: Match; pos: PopoverPosition }
   | { type: 'ambiguous'; match: Match; pos: PopoverPosition }
-  | { type: 'classification'; text: string; pos: PopoverPosition }
-  | { type: 'link'; url: string; pos: PopoverPosition }
+  | { type: 'claim'; text: string; pos: PopoverPosition; linkedUrl?: string }
 
 export function SourceViewer() {
   const { id } = useParams<{ id: string }>()
@@ -240,8 +438,8 @@ export function SourceViewer() {
   const [loading, setLoading] = useState(true)
   const [matchesLoading, setMatchesLoading] = useState(true)
   const [focusedEntityId, setFocusedEntityId] = useState<number | null>(null)
+  const [linkedEntityIds, setLinkedEntityIds] = useState<number[]>([])
   const [popover, setPopover] = useState<PopoverState | null>(null)
-  const [matchKey, setMatchKey] = useState(0) // force re-render of highlights
 
   useEffect(() => {
     if (!sourceId) return
@@ -255,14 +453,15 @@ export function SourceViewer() {
   const reloadMatches = useCallback(async () => {
     const m = await api.sources.matches(sourceId)
     setMatches(m)
-    setMatchKey(k => k + 1)
     setPopover(null)
   }, [sourceId])
 
   const handleMatchClick = useCallback((match: Match, x: number, y: number) => {
     const pos = { x, y }
     if (match.status === 'confirmed') {
-      setFocusedEntityId(match.confirmed_entity_id)
+      // Single or multi: focus the first confirmed entity; multi case shows switcher in active block
+      setFocusedEntityId(match.confirmed_entity_ids[0] ?? null)
+      setLinkedEntityIds(match.confirmed_entity_ids)
       setPopover(null)
     } else if (match.status === 'suggested') {
       setPopover({ type: 'suggested', match, pos })
@@ -271,22 +470,13 @@ export function SourceViewer() {
     }
   }, [])
 
-  const handleTextSelect = useCallback((text: string, x: number, y: number) => {
-    setPopover({ type: 'classification', text, pos: { x, y } })
-  }, [])
-
-  const handleLinkClick = useCallback((url: string) => {
-    setPopover({ type: 'link', url, pos: { x: window.innerWidth / 2, y: window.innerHeight / 2 } })
+  const handleTextSelect = useCallback((text: string, x: number, y: number, linkedUrl?: string) => {
+    setPopover({ type: 'claim', text, pos: { x, y }, linkedUrl })
   }, [])
 
   async function handleConfirmAll() {
     await api.sources.confirmAll(sourceId)
     await reloadMatches()
-  }
-
-  async function handleQueueLink(url: string) {
-    await api.sources.fetch(url)
-    setPopover(null)
   }
 
   useEffect(() => {
@@ -302,6 +492,9 @@ export function SourceViewer() {
 
   if (loading) return <div className="loading">Loading source…</div>
   if (!source) return <div className="empty-state"><p>Source not found.</p><button className="btn btn-secondary" onClick={() => navigate('/queue')}>Back to queue</button></div>
+
+  const pageTopicId = source.subject_confirmed ? source.subject_entity_id : null
+  const activeEntityId = focusedEntityId ?? pageTopicId
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -325,12 +518,10 @@ export function SourceViewer() {
 
         {source.content ? (
           <SourceContent
-            key={matchKey}
             html={source.content}
             matches={matches}
             onMatchClick={handleMatchClick}
             onTextSelect={handleTextSelect}
-            onLinkClick={handleLinkClick}
           />
         ) : (
           <div className="empty-state"><p>Source has no content yet.</p></div>
@@ -338,24 +529,20 @@ export function SourceViewer() {
       </div>
 
       {/* Right: context panel */}
-      <div style={{ width: 300, minWidth: 280, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--panel-bg)' }}>
-        {focusedEntityId ? (
-          <>
-            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--content-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#64748b' }}>Entity</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => setFocusedEntityId(null)}>✕</button>
-            </div>
-            <div className="scroll-y" style={{ flex: 1 }}>
-              <EntityDetailPanel entityId={focusedEntityId} sourceId={sourceId} />
-            </div>
-          </>
-        ) : (
-          <SourcePanel
-            source={source}
-            onUpdate={setSource}
-            onConfirmAll={handleConfirmAll}
-          />
-        )}
+      <div style={{ width: 480, minWidth: 480, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--panel-bg)' }}>
+        <TopicSection source={source} onUpdate={setSource} />
+        <ActiveTopicSection
+          source={source}
+          focusedEntityId={focusedEntityId}
+          linkedEntityIds={linkedEntityIds}
+          onSwitch={id => setFocusedEntityId(id)}
+          onClear={() => { setFocusedEntityId(null); setLinkedEntityIds([]) }}
+        />
+        <ActionsSection
+          source={source}
+          onUpdate={setSource}
+          onConfirmAll={handleConfirmAll}
+        />
       </div>
 
       {/* Popovers */}
@@ -377,20 +564,14 @@ export function SourceViewer() {
           onDismiss={() => setPopover(null)}
         />
       )}
-      {popover?.type === 'classification' && (
-        <ClassificationPopover
+      {popover?.type === 'claim' && (
+        <ClaimPopover
           text={popover.text}
           pos={popover.pos}
           sourceId={sourceId}
+          activeEntityId={activeEntityId}
+          linkedUrl={popover.linkedUrl}
           onCreated={reloadMatches}
-          onDismiss={() => setPopover(null)}
-        />
-      )}
-      {popover?.type === 'link' && (
-        <LinkPopover
-          url={popover.url}
-          pos={popover.pos}
-          onQueue={() => handleQueueLink(popover.url)}
           onDismiss={() => setPopover(null)}
         />
       )}
