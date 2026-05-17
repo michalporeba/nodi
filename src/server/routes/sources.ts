@@ -11,11 +11,21 @@ const router = new Hono()
 router.get('/', c => {
   const status = c.req.query('status')
   const type = c.req.query('type')
-  return c.json(getSources({ status, type }))
+  const origin = c.req.query('origin')
+  return c.json(getSources({ status, type, origin }))
 })
 
 router.get('/candidates', c => {
   return c.json(getCandidateLinks())
+})
+
+router.post('/candidates/reject', async c => {
+  const body = await c.req.json() as { url: string }
+  if (!body.url) return c.json({ error: 'url is required' }, 400)
+  const existing = getSourceByUrl(body.url)
+  if (existing) return c.json(existing)
+  const source = createSource({ type: 'url', url: body.url, status: 'irrelevant', origin: 'discovery' })
+  return c.json(source, 201)
 })
 
 router.get('/:id', c => {
@@ -26,7 +36,7 @@ router.get('/:id', c => {
 })
 
 router.post('/fetch', async c => {
-  const body = await c.req.json() as { url: string }
+  const body = await c.req.json() as { url: string; origin?: 'manual' | 'discovery' }
   if (!body.url) return c.json({ error: 'url is required' }, 400)
 
   const existing = getSourceByUrl(body.url)
@@ -51,6 +61,7 @@ router.post('/fetch', async c => {
     title: title ?? undefined,
     content: html,
     status: 'queued',
+    origin: body.origin ?? 'manual',
     fetched_at: new Date().toISOString(),
   })
 

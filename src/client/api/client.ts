@@ -1,7 +1,7 @@
 import type {
   Source, Entity, EntityDetail, Label, ExternalID, Mention, Claim,
   Match, SourceLink, WikidataCandidate, CandidateLink,
-  EntityType, SourceStatus,
+  EntityType, SourceStatus, SourceOrigin,
 } from './types'
 
 const BASE = '/api'
@@ -28,15 +28,16 @@ const del = <T>(path: string) => req<T>('DELETE', path)
 
 export const api = {
   sources: {
-    list: (filters?: { status?: SourceStatus; type?: string }) => {
+    list: (filters?: { status?: SourceStatus; type?: string; origin?: SourceOrigin }) => {
       const params = new URLSearchParams()
       if (filters?.status) params.set('status', filters.status)
       if (filters?.type) params.set('type', filters.type)
+      if (filters?.origin) params.set('origin', filters.origin)
       const qs = params.toString()
       return get<Source[]>(`/sources${qs ? `?${qs}` : ''}`)
     },
     get: (id: number) => get<Source>(`/sources/${id}`),
-    fetch: (url: string) => post<Source>('/sources/fetch', { url }),
+    fetch: (url: string, origin: SourceOrigin = 'manual') => post<Source>('/sources/fetch', { url, origin }),
     update: (id: number, data: Partial<Pick<Source, 'status' | 'title' | 'subject_entity_id' | 'subject_confirmed' | 'subject_description'>>) =>
       patch<Source>(`/sources/${id}`, data),
     matches: (id: number) => get<Match[]>(`/sources/${id}/matches`),
@@ -44,6 +45,7 @@ export const api = {
     queueLinks: (id: number, urls: string[]) => post<{ queued: number }>(`/sources/${id}/links/queue`, { urls }),
     confirmAll: (id: number) => post<{ confirmed: number; skipped_ambiguous: unknown[] }>(`/sources/${id}/mentions/confirm-all`, {}),
     candidates: () => get<CandidateLink[]>('/sources/candidates'),
+    rejectCandidate: (url: string) => post<Source>('/sources/candidates/reject', { url }),
   },
 
   entities: {

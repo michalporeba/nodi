@@ -13,12 +13,15 @@ export const ENTITY_TYPES: EntityType[] = [
   'Organisation', 'Location', 'Other',
 ]
 
+export type SourceOrigin = 'manual' | 'discovery'
+
 export interface Source {
   id: number
   type: SourceType
   url: string | null
   title: string | null
   status: SourceStatus
+  origin: SourceOrigin
   fetched_at: string | null
   content?: string
   subject_entity_id: number | null

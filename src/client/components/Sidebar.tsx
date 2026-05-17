@@ -5,7 +5,7 @@ export function Sidebar() {
     <nav className="sidebar">
       <div className="sidebar-logo">
         nodi
-        <span>Welsh Film &amp; Television</span>
+        <span>graph annotations</span>
       </div>
       <div className="sidebar-nav">
         <NavLink to="/queue" className={({ isActive }) => isActive ? 'active' : ''}>

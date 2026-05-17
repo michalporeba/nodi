@@ -18,6 +18,9 @@ export function getDb(): Database {
   const schema = readFileSync(join(process.cwd(), 'docs', 'schema.sql'), 'utf-8')
   _db.exec(schema)
 
+  // Additive migrations for existing databases
+  try { _db.exec("ALTER TABLE Source ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'") } catch { /* already exists */ }
+
   return _db
 }
 

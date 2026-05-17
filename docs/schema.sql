@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS Source (
   title               TEXT,
   status              TEXT NOT NULL DEFAULT 'queued'
                         CHECK(status IN ('queued', 'active', 'done', 'irrelevant')),
+  origin              TEXT NOT NULL DEFAULT 'manual'
+                        CHECK(origin IN ('manual', 'discovery')),
   fetched_at          TEXT,                         -- ISO8601 datetime
   content             TEXT,                         -- full HTML or markdown
   subject_entity_id   INTEGER REFERENCES Entity(id),

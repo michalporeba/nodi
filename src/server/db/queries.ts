@@ -24,6 +24,7 @@ export interface Source {
   url: string | null
   title: string | null
   status: SourceStatus
+  origin: 'manual' | 'discovery'
   fetched_at: string | null
   content?: string
   subject_entity_id: number | null
@@ -124,6 +125,7 @@ function mapSource(row: Record<string, unknown>, includeContent = false): Source
     url: row.url as string | null,
     title: row.title as string | null,
     status: row.status as SourceStatus,
+    origin: (row.origin as 'manual' | 'discovery') ?? 'manual',
     fetched_at: row.fetched_at as string | null,
     subject_entity_id: row.subject_entity_id as number | null,
     subject_confirmed: Boolean(row.subject_confirmed),
@@ -206,15 +208,16 @@ const ENTITY_AGGREGATE_SQL = `
   FROM Entity e
 `
 
-export function getSources(filters: { status?: string; type?: string } = {}): Source[] {
+export function getSources(filters: { status?: string; type?: string; origin?: string } = {}): Source[] {
   const db = getDb()
   const parts: string[] = ['WHERE 1=1']
   const params: Params = []
 
   if (filters.status) { parts.push('AND s.status = ?'); params.push(filters.status) }
   if (filters.type) { parts.push('AND s.type = ?'); params.push(filters.type) }
+  if (filters.origin) { parts.push('AND s.origin = ?'); params.push(filters.origin) }
 
-  const sql = `SELECT s.id, s.type, s.url, s.title, s.status, s.fetched_at, s.subject_entity_id, s.subject_confirmed, s.subject_description, s.created_at FROM Source s ${parts.join(' ')} ORDER BY s.created_at DESC`
+  const sql = `SELECT s.id, s.type, s.url, s.title, s.status, s.origin, s.fetched_at, s.subject_entity_id, s.subject_confirmed, s.subject_description, s.created_at FROM Source s ${parts.join(' ')} ORDER BY CASE WHEN s.origin = 'manual' THEN 0 ELSE 1 END, s.created_at DESC`
   return (db.prepare(sql).all(...params) as Record<string, unknown>[]).map(r => mapSource(r))
 }
 
@@ -230,18 +233,20 @@ export function createSource(data: {
   title?: string
   content?: string
   status?: SourceStatus
+  origin?: 'manual' | 'discovery'
   fetched_at?: string
 }): Source {
   const db = getDb()
   const result = db.prepare(`
-    INSERT INTO Source (type, url, title, content, status, fetched_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO Source (type, url, title, content, status, origin, fetched_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     data.type,
     data.url ?? null,
     data.title ?? null,
     data.content ?? null,
     data.status ?? 'queued',
+    data.origin ?? 'manual',
     data.fetched_at ?? null,
   )
   return getSource(result.lastInsertRowid as number)!
