@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api/client'
 import type { Source, Entity, EntityDetail, EntityType, WikidataCandidate, RelationshipResult, RelHop, EntitySearchLogEntry } from '../../api/types'
+import { PropertyPicker } from '../PropertyPicker'
+import { ClaimRow } from '../ClaimRow'
 import { ENTITY_TYPES } from '../../api/types'
 
 // ─── Topic picker (used when no topic is set, or when changing) ───────────────
@@ -508,17 +510,31 @@ export function RelationshipConnector({
   pageTopicId, activeEntityId, sourceId, reloadToken, onChanged, onSwitchActive,
 }: RelationshipConnectorProps) {
   const [result, setResult] = useState<RelationshipResult | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [property, setProperty] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (pageTopicId === activeEntityId) { setResult(null); setLoading(false); return }
-    setLoading(true)
+    if (pageTopicId === activeEntityId) { setResult(null); setInitialLoading(false); return }
+    // Keep the previous result visible during background refetches; only hide
+    // the panel on the very first load before any data exists.
     api.relationships.find(pageTopicId, activeEntityId)
       .then(setResult)
-      .finally(() => setLoading(false))
+      .finally(() => setInitialLoading(false))
   }, [pageTopicId, activeEntityId, reloadToken])
+
+  async function deleteHop(claimId: number) {
+    // Optimistic: drop any path containing this claim, then refresh.
+    setResult(prev => prev ? {
+      ...prev,
+      paths: prev.paths.filter(p => p.hops.every(h => h.claim_id !== claimId)),
+    } : prev)
+    try {
+      await api.claims.delete(claimId)
+    } finally {
+      onChanged()
+    }
+  }
 
   async function addDirect() {
     if (!property.trim()) return
@@ -538,7 +554,7 @@ export function RelationshipConnector({
   }
 
   if (pageTopicId === activeEntityId) return null
-  if (loading) return null
+  if (initialLoading) return null
 
   const paths = result?.paths ?? []
   const entities = result?.entities ?? {}
@@ -550,14 +566,13 @@ export function RelationshipConnector({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ fontSize: 11, color: '#94a3b8' }}>No claim links these yet.</div>
           <div style={{ display: 'flex', gap: 4 }}>
-            <input
-              className="input"
-              style={{ fontSize: 11, flex: 1, padding: '3px 6px' }}
-              placeholder="property (e.g. cast_member)"
+            <PropertyPicker
               value={property}
-              onChange={e => setProperty(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addDirect() }}
+              onChange={setProperty}
+              subjectType={entities[pageTopicId]?.type as EntityType | undefined}
+              placeholder="property (e.g. cast_member)"
               disabled={saving}
+              onEnter={addDirect}
             />
             <button
               className="btn btn-primary btn-sm"
@@ -574,15 +589,16 @@ export function RelationshipConnector({
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {paths.map((p, i) => (
+          {paths.map(p => (
             <PathRow
-              key={i}
+              key={p.hops.map(h => h.claim_id).join('-')}
               hops={p.hops}
               pageTopicId={pageTopicId}
               activeEntityId={activeEntityId}
               intermediateId={p.intermediate_id}
               entities={entities}
               onSwitchActive={onSwitchActive}
+              onDeleteHop={deleteHop}
             />
           ))}
         </div>
@@ -591,13 +607,14 @@ export function RelationshipConnector({
   )
 }
 
-function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, onSwitchActive }: {
+function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, onSwitchActive, onDeleteHop }: {
   hops: RelHop[]
   pageTopicId: number
   activeEntityId: number
   intermediateId?: number
   entities: Record<number, { id: number; type: string; primary_label: string }>
   onSwitchActive: (id: number) => void
+  onDeleteHop: (claimId: number) => void
 }) {
   // Render: page → [intermediate →] active, with arrow direction per hop.
   // For each hop, decide which direction it visually flows (down vs up) based on
@@ -609,6 +626,12 @@ function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#475569', paddingLeft: 14 }}>
         <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{downward ? '↓' : '↑'}</span>
         <span style={{ fontFamily: 'monospace' }}>{hop.property}</span>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => onDeleteHop(hop.claim_id)}
+          style={{ color: '#ef4444', padding: '0 4px', fontSize: 11, lineHeight: 1 }}
+          title="Delete this claim"
+        >×</button>
       </div>
     )
   }
@@ -889,19 +912,23 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
       <div>
         <div className="section-heading">Claims</div>
         {entity.claims.map(c => (
-          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: 13 }}>
-            <span>
-              <span style={{ color: '#64748b', marginRight: 6 }}>{c.property}</span>
-              {c.object_label ?? c.value}
-              {c.source_title && <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 6 }}>[{c.source_title}]</span>}
-            </span>
-            <button className="btn btn-ghost btn-sm" onClick={() => deleteClaim(c.id)} style={{ color: '#ef4444', padding: '2px 6px' }}>×</button>
-          </div>
+          <ClaimRow
+            key={c.id}
+            claim={c}
+            subjectType={entity.type}
+            onChanged={async () => { const u = await api.entities.get(entity.id); setEntity(u) }}
+            onDeleted={() => deleteClaim(c.id)}
+          />
         ))}
 
         {addingClaim ? (
           <form onSubmit={handleAddClaim} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-            <input className="input" placeholder="Property (e.g. date_of_birth)" value={newClaim.property} onChange={e => setNewClaim(p => ({ ...p, property: e.target.value }))} />
+            <PropertyPicker
+              value={newClaim.property}
+              onChange={v => setNewClaim(p => ({ ...p, property: v }))}
+              subjectType={entity.type}
+              placeholder="Property (e.g. date_of_birth)"
+            />
             <input className="input" placeholder="Value" value={newClaim.value} onChange={e => setNewClaim(p => ({ ...p, value: e.target.value }))} />
             <div style={{ display: 'flex', gap: 6 }}>
               <button className="btn btn-primary btn-sm" type="submit">Save</button>

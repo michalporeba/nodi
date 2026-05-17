@@ -6,6 +6,7 @@ import type { Source, Match, Entity, EntityType } from '../../api/types'
 import { ENTITY_TYPES } from '../../api/types'
 import { SourceContent } from './SourceContent'
 import { TopicSection, ActiveTopicSection, ActionsSection, RelationshipConnector } from './EntityPanel'
+import { PropertyPicker } from '../PropertyPicker'
 
 // ─── Popovers ─────────────────────────────────────────────────────────────────
 
@@ -318,12 +319,11 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
         {hasActive && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: '#64748b', width: 64 }}>Property</span>
-            <input
-              className="input"
-              style={{ fontSize: 12, flex: 1 }}
-              placeholder="e.g. cast_member, start_date"
+            <PropertyPicker
               value={property}
-              onChange={e => setProperty(e.target.value)}
+              onChange={setProperty}
+              subjectType={activeEntity?.type}
+              placeholder="e.g. cast_member, date_of_birth"
               autoFocus
             />
           </div>

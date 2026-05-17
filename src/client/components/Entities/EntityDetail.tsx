@@ -3,6 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../../api/client'
 import type { EntityDetail as EntityDetailType, EntityType, WikidataCandidate } from '../../api/types'
 import { ENTITY_TYPES } from '../../api/types'
+import { PropertyPicker } from '../PropertyPicker'
+import { ClaimRow } from '../ClaimRow'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -317,13 +319,14 @@ export function EntityDetail() {
               <div key={prop} style={{ padding: '10px 16px', borderBottom: pi < arr.length - 1 ? '1px solid var(--content-border)' : 'none' }}>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{prop}</div>
                 {claims.map(c => (
-                  <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0' }}>
-                    <div>
-                      <span style={{ fontSize: 13 }}>{c.object_label ?? c.value}</span>
-                      {c.source_title && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>[{c.source_title}]</span>}
-                    </div>
-                    <button className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} onClick={() => handleDeleteClaim(c.id)}>×</button>
-                  </div>
+                  <ClaimRow
+                    key={c.id}
+                    claim={c}
+                    subjectType={entity.type}
+                    hideProperty
+                    onChanged={async () => { const u = await api.entities.get(entity.id); setEntity(u) }}
+                    onDeleted={() => handleDeleteClaim(c.id)}
+                  />
                 ))}
               </div>
             ))}
@@ -333,7 +336,13 @@ export function EntityDetail() {
           </div>
           {addingClaim ? (
             <form onSubmit={handleAddClaim} style={{ display: 'flex', gap: 8 }}>
-              <input className="input" placeholder="Property (e.g. date_of_birth)" value={newClaim.property} onChange={e => setNewClaim(p => ({ ...p, property: e.target.value }))} style={{ flex: 1 }} autoFocus />
+              <PropertyPicker
+                value={newClaim.property}
+                onChange={v => setNewClaim(p => ({ ...p, property: v }))}
+                subjectType={entity.type}
+                placeholder="Property (e.g. date_of_birth)"
+                autoFocus
+              />
               <input className="input" placeholder="Value" value={newClaim.value} onChange={e => setNewClaim(p => ({ ...p, value: e.target.value }))} style={{ flex: 1 }} />
               <button className="btn btn-primary btn-sm" type="submit">Save</button>
               <button className="btn btn-ghost btn-sm" type="button" onClick={() => setAddingClaim(false)}>Cancel</button>

@@ -23,129 +23,220 @@ nodi is a single-page application with four main views, accessible from a persis
 
 ### 1. Source Viewer (`/sources/:id`)
 
-The primary annotation workspace. Split into two panels:
+The primary annotation workspace. Split into two panels — content on the left, a stacked control panel (~480px wide) on the right:
 
 ```
-┌───────────────────────────────┬──────────────────────┐
-│                               │                      │
-│  Source content               │  Entity panel        │
-│  (rendered HTML or markdown)  │  (context-sensitive) │
-│  with highlight overlay       │                      │
-│                               │                      │
-└───────────────────────────────┴──────────────────────┘
+┌───────────────────────────────┬───────────────────────┐
+│                               │  TOPIC                │
+│                               ├───────────────────────┤
+│  Source content               │  RELATIONSHIP         │
+│  (rendered HTML or markdown)  │  (only when active ≠  │
+│  with highlight overlay       │   page topic)         │
+│                               ├───────────────────────┤
+│                               │  ACTIVE TOPIC         │
+│                               │  (claims, labels,     │
+│                               │   external IDs, etc.) │
+│                               ├───────────────────────┤
+│                               │  ACTIONS              │
+└───────────────────────────────┴───────────────────────┘
 ```
 
 **Left panel — source content**
 
-Displays the stored HTML rendered in a sandboxed container (no scripts, no external requests). All links are intercepted — clicking an internal link does not navigate; instead it opens an "Add to queue?" prompt.
+Displays the stored HTML rendered in a sandboxed container (no scripts, no external requests).
 
 Highlights are rendered as inline `<mark>` elements injected over the rendered content:
-- **Green** (`--highlight-confirmed`) — confirmed mention, entity known
+- **Green** (`--highlight-confirmed`) — confirmed mention; one or more entities
 - **Amber** (`--highlight-suggested`) — suggested match, one candidate entity, awaiting confirmation
-- **Amber dashed** (`--highlight-ambiguous`) — ambiguous match, multiple candidate entities
-- **Purple** (`--highlight-selected`) — user has selected this text, classification in progress
+- **Amber dashed** (`--highlight-ambiguous`) — ambiguous match, multiple candidate entities, none confirmed yet
+- **Purple** (`--highlight-selected`) — user has selected this text, claim flow in progress
+
+The highlighter mirrors the server's lenient word boundary semantics: `(?<=^|\W) … (?=\W|$)` rather than `\b`. Without this, surface forms ending in punctuation (e.g. `"Megan Harries (née Owen)"` followed by a space) would silently fail to render.
+
+The highlight injection is rerun in-place on every matches update. The container's `scrollTop` is captured and restored across the `innerHTML` reset so the user does not get bounced back to the top of the page after a popover save.
 
 On page load:
 1. Fetch source content from `GET /api/sources/:id`
 2. Fetch matches from `GET /api/sources/:id/matches`
 3. Inject highlights into rendered HTML
+4. If status was `queued`, PATCH to `active`
 
-**Interactions on the left panel**
+**Selection behaviours**
 
-*Clicking a confirmed highlight (green):*
-- Opens the entity panel on the right showing the matched entity
-- Highlight border becomes more prominent
+Text selection always normalises to whole words.
 
-*Clicking a suggested highlight (amber, unambiguous):*
-- Opens a small inline popover above the highlight:
-  ```
-  [Entity name] · [type]
-  [# mentions] mentions · [# claims] claims
-  [ ✓ Confirm ]  [ ✗ Not this ]
-  ```
-- Confirm → creates a Mention row, highlight turns green
-- Not this → dismisses the suggestion for this session (does not delete the label)
+- **Single click on a word** — selects the whole word under the cursor and opens the claim popover.
+- **Shift+click** — extends from the previous anchor word to the clicked word, in either direction. Range is computed by merging the two word ranges (min start, max end).
+- **Drag selection** — on mouseup the range is trimmed of leading/trailing whitespace, then snapped outward to word boundaries on each end. Dragging through "gan Har" therefore yields "Megan Harris"; a drag that already ends on whitespace does not bleed into the next word.
+- A click within 3px of mousedown counts as a click (word select); past 3px it counts as a drag.
 
-*Clicking an ambiguous highlight (amber dashed):*
-- Opens a disambiguation popover listing all candidate entities:
-  ```
-  "David Lyn" could be:
-  ○  David Lyn  · Person  · actor, b. 1947
-  ○  David Lyn  · Person  · poet, 19th century
-  [ + Create new entity ]
-  ```
-- Selecting a candidate confirms the mention for that entity, turns highlight green
-- "Create new entity" opens the entity creation flow
+Word characters use Unicode letter/number classes (`/[\p{L}\p{N}_]/u`), so accents like `é` and `ñ` are treated as word characters.
 
-*Selecting new text (mouse selection):*
-- On mouseup, if selected text is not already highlighted, show a small floating toolbar:
-  ```
-  [ Mark as entity ]  [ Dismiss ]
-  ```
-- "Mark as entity" opens the classification popover (see below)
+**Link behaviour**
 
-**Classification popover**
+`<a>` tags inside the rendered content keep their visual styling but are non-navigable. The container blocks default action on `click` and `auxclick` (middle-click and Cmd/Ctrl+click), preventing both same-window and new-tab navigation.
 
-Appears when user selects text and clicks "Mark as entity":
+Clicking a link selects the anchor's full text content as the working selection and opens the claim popover with a URL block at the top showing the link's status:
 
 ```
-Selected: "Emyr Wyn"
-
-Type:  [ Person ▾ ]
-
-Search existing:  [_____________]
-                  > Emyr Wyn · Person · Welsh actor ✓
-                  > Emyr Wyn Jones · Person · politician
-
-[ + Create new ]  [ Cancel ]
+External link
+https://en.wikipedia.org/wiki/...
+[ In queue · queued ]                or
+[ Not in queue ]  [ + Add to queue ]
 ```
 
-- Type dropdown: Person, FictionalPerson, Character, Film, Series, Episode, Organisation, Location, Other
-- Search field queries `GET /api/entities?q=...&type=...` as user types
-- Selecting an existing entity creates a Mention and adds the selected text as an alias Label if it differs from existing labels
-- "Create new" creates an Entity with this text as primary label and the selected type, then creates a Mention
+`+ Add to queue` calls `POST /api/sources/fetch` and updates the badge.
 
-**Right panel — entity panel**
+**Highlight clicks**
 
-Shows context-sensitive information. Default state: source metadata.
+*Confirmed highlight (green):*
+- Sets the active topic to the highlight's first confirmed entity.
+- If the surface form maps to >1 entity, the active-topic block shows a switcher (see below) so the user can flip between linked entities.
+
+*Suggested highlight (amber):*
+- Opens a small popover showing the candidate entity with `Confirm` / `Not this`.
+
+*Ambiguous highlight (amber dashed):*
+- Opens a multi-select popover listing all candidate entities with checkboxes plus `Confirm` and `Cancel`. Confirming multiple boxes creates a Mention per checked entity — used when a surface form really does refer to several entities at once.
+
+**Claim popover (unified flow)**
+
+Opens on text-selection mouseup (or link click). One form does both claim creation and entity creation:
 
 ```
-Source metadata (default)
+About <Active Topic>
 ─────────────────────────
-Title: Hinterland (TV series) - Wikipedia
-URL: https://en.wikipedia.org/wiki/...
-Status: [ active ▾ ]
-Subject: [ Hinterland (series) × ]  or  [ Set subject... ]
+Property  [ cast_member       ▾ ]
+Value     [ Megan Harries        ]
 
-[ Confirm all remaining ]
-[ Mark as done ]
+Add entities, or leave empty to save the value as a string.
+
+Linked entities (one claim per entity will be saved):
+[ Megan Harries (Character) × ]  [ + new (FictionalPerson) × ]
+
++ new as: [Person] [Character] [FictionalPerson] [Film] …
+
+[ ✓ Save claim · 2 entities ]  [ Cancel ]
 ```
 
-When an entity is focused (by clicking a highlight):
+Save semantics depend on what's filled:
+
+| Property set? | Linked entities? | Result                                                                                                  |
+|---------------|------------------|---------------------------------------------------------------------------------------------------------|
+| yes           | none             | One claim with `value` = string                                                                         |
+| yes           | one              | A Mention + a claim with `object_entity_id` on the linked entity. `value` cleared.                      |
+| yes           | many             | A Mention + a claim per linked entity. The same property/subject; each claim points at a different entity. |
+| no            | one+             | Just the Mention(s). No claim.                                                                          |
+| no            | none             | Save disabled.                                                                                          |
+
+The `Property` field is the shared `PropertyPicker` combobox (see below). New entities created from this popover use the current `Value` field as their `primary_label`; existing entities are picked from the typeahead.
+
+**Property picker (combobox)**
+
+Used everywhere a claim property is entered (claim popover, relationship inline add, claim row edit, both add-claim forms). Replaces plain text inputs.
 
 ```
-Richard Harrington
-─────────────────
-Type: Person
-Mentions: 4 sources
-Claims: 8
+Property  [ cast_                  ]
+          ┌──────────────────────────────────┐
+          │ cast_member         entity P161  │
+          │ cast_member_of      entity        │
+          │ ──────────────────────────────── │
+          │ + Use custom: "cast_m"           │
+          └──────────────────────────────────┘
+```
 
-Labels
-  Richard Harrington  [primary] [en]
-  [ + add alias ]
+Suggestions are filtered by the typed text and the subject entity's type. They come from two sources:
+- Curated list in `src/client/data/properties.ts` (mirror of `docs/domain.md`, scoped by `applies_to`)
+- Live `GET /api/properties/used?subject_type=X` so ad-hoc properties already used in the DB are picked up
 
+Each row shows value type (`text` / `entity` / `both`) and the Wikidata PID when known; used-only entries show a `used ×N` badge. The last row is always `+ Use custom: <typed>` so new property keys can still be introduced.
+
+Keyboard: ↑/↓ navigate, Enter accepts the highlighted option (or the typed text when nothing is highlighted), Esc closes.
+
+**Right panel — control panel**
+
+Four stacked blocks, top to bottom:
+
+**Topic** (sticky)
+```
+Topic                                 ✎
+Pobol y Cwm
+[ Series ]  Q1387857
+```
+or, when no topic is set, an inline `TopicPicker` with three paths: search existing entity, create new entity (per-type buttons), or write a free-text description for pages that aren't about a single thing. The picker is the first thing the user is expected to use on a new source.
+
+**Relationship** (only when active topic differs from page topic)
+
+```
+Relationship
+Pobol y Cwm  Series
+   ↓ cast_member  ×
+Megan Harries  FictionalPerson
+```
+
+Or, for a 2-hop chain:
+
+```
+Pobol y Cwm  Series
+   ↓ character  ×
+Megan Harries  Character    ← click to make active
+   ↓ performer  ×
+Sue Roderick  Person
+```
+
+Each arrow shows the claim's property in monospace; the arrow direction (`↓` / `↑`) reflects which side of the claim is `subject` versus `object`. Intermediate chips are dotted-underlined and clickable — click to make that entity the active topic. `×` next to a property deletes that hop's claim (no confirm; reversible by re-creating).
+
+Empty state — no claim links page and active yet:
+
+```
+Relationship
+No claim links these yet.
+[ property … ▾ ]  [ + Add ]
+Saves: topic → property → active
+```
+
+**Active topic**
+
+Defaults to the page topic when that is an entity. Switches when the user clicks a confirmed entity highlight. Shows a "← page" link when active differs from page topic.
+
+When the active topic came from a surface form that maps to multiple entities, a compact switcher appears at the top of this block:
+
+```
+"Megan Harries" →  [Character]  [FictionalPerson]  [ + ]
+```
+
+- Each button shows only the entity *type* (label is shared and shown once on the left); the entity's primary label is in the button's `title`.
+- The currently active entity's chip is highlighted.
+- `+` opens an inline picker (search existing or create new of any type) — adding an entity creates a Mention against the surface form and, if needed, adds the surface form as an alias label on that entity so future matches catch it.
+
+Below the switcher, the entity's labels, external IDs, claims, and mentions are rendered identically to the standalone entity view.
+
+**Claims are clickable to edit.** Both the property and the value have dotted underlines indicating they are interactive.
+
+- Click a property — inline `PropertyPicker` opens, save writes `PATCH /api/claims/:id { property }`.
+- Click a *text* value — input + `Save text` / `→ Promote to entity` / `Cancel`. Promote expands a typeahead and per-type "new as" buttons; picking either updates the claim to `{ value: null, object_entity_id }`.
+- Click an *entity* value — read-only entity name plus `⤵ Unlink (back to text)` / `↻ Replace entity` / `Cancel`. Unlink writes `{ value: entity.primary_label, object_entity_id: null }` (the entity itself is preserved; only the link is broken).
+
+Property and value editors are mutually exclusive — opening one closes the other. Enter saves text edits; Esc cancels.
+
+**External IDs include a search-log fallback.** Once the user has searched Wikidata for the entity:
+
+```
 External IDs
-  Wikidata: Q7326008  ✓
-  IMDB: nm0364813  ✓
-  [ + add ID ]
-  [ Search Wikidata ]
+  Wikidata: Q7326008  ✓        (when confirmed)
+or
+  Wikidata: searched 2h ago · no results
+  🔍 Search again              (when log row exists, no confirmed QID)
+or
+  🔍 Search Wikidata           (no log row, never searched)
+```
 
-Claims
-  date_of_birth  1975-07-27  [source]
-  occupation     actor       [source]
-  [ + add claim ]
+The log entry is written server-side on every search; a confirmed `ExternalID` row takes precedence over the log.
 
-[ View full entity → ]
+**Actions**
+```
+Status:  [ active ▾ ]
+[ ✓ Confirm suggestions ]   [ ✓ Mark done ]
 ```
 
 ---
@@ -218,8 +309,8 @@ Full view of a single entity.
 Sections:
 - **Header**: primary label, type, edit button, delete button
 - **Labels**: all labels with language tags, add/remove controls
-- **External IDs**: all IDs with confirmation status, Wikidata search button
-- **Claims**: grouped by property, each with provenance source link, add/delete controls
+- **External IDs**: all IDs with confirmation status, Wikidata search button (uses the same search-log fallback as the side panel — see Source Viewer / Active topic)
+- **Claims**: grouped by property, each row rendered with the same `ClaimRow` editor used in the side panel (text↔entity editing, replace, unlink, property edit). The property is shown once per group in the section header, so the row hides it.
 - **Mentions**: list of sources where this entity appears, with confirmation status and link to open source at that mention
 - **Statistics**: mention count, claim count, source count, reconciliation status
 
@@ -272,7 +363,12 @@ Confirmed highlights use a solid border. Ambiguous highlights use a dashed borde
 
 Use React context for:
 - Current source and its matches
-- Currently focused entity
-- Popover state (open/closed, position, type)
+- Currently focused entity (active topic, when different from page topic)
+- The surface form + linked entity ids that drove the current active topic (used by the linked-entity switcher)
+- Popover state (open/closed, position, type, optional `linkedUrl`)
 
 All server state fetched and mutated via the typed API client in `src/client/api/client.ts`. No global state library needed — fetch on mount, update on mutation, refetch matches after any mention change.
+
+A small `reloadToken` integer is held alongside matches. Bumping it triggers a refetch of relationship paths and other derived views. The relationship panel uses **optimistic updates** on delete (remove the affected paths from local state immediately) and **keeps the previous result visible during background refetches** so unrelated paths do not flicker out and back when one is deleted.
+
+Highlight injection runs inside `useEffect` on `matches` changes and is **not** keyed by `matchKey` — using `key=` to force a remount would discard scroll position. Instead the effect captures `scrollTop` before resetting `innerHTML` and restores it after, so popover saves don't jump the page.

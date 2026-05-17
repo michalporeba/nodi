@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { createClaim, deleteClaim } from '../db/queries'
+import { createClaim, deleteClaim, updateClaim } from '../db/queries'
 
 const router = new Hono()
 
@@ -20,6 +20,14 @@ router.post('/', async c => {
   }
   const claim = createClaim(body)
   return c.json(claim, 201)
+})
+
+router.patch('/:id', async c => {
+  const id = parseInt(c.req.param('id'))
+  const body = await c.req.json() as { value?: string | null; object_entity_id?: number | null; property?: string }
+  const updated = updateClaim(id, body)
+  if (!updated) return c.json({ error: 'Not found' }, 404)
+  return c.json(updated)
 })
 
 router.delete('/:id', c => {

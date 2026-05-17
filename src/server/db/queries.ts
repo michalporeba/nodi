@@ -555,6 +555,43 @@ export function deleteClaim(id: number): void {
   db.prepare('DELETE FROM Claim WHERE id = ?').run(id)
 }
 
+export function updateClaim(id: number, data: { value?: string | null; object_entity_id?: number | null; property?: string }): Claim | null {
+  const db = getDb()
+  const sets: string[] = []
+  const params: unknown[] = []
+  if (data.value !== undefined)            { sets.push('value = ?');            params.push(data.value) }
+  if (data.object_entity_id !== undefined) { sets.push('object_entity_id = ?'); params.push(data.object_entity_id) }
+  if (data.property !== undefined)         { sets.push('property = ?');         params.push(data.property) }
+  if (sets.length === 0) {
+    const row = db.prepare('SELECT * FROM Claim WHERE id = ?').get(id) as Record<string, unknown> | null
+    return row ? mapClaim(row) : null
+  }
+  params.push(id)
+  db.prepare(`UPDATE Claim SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+  const row = db.prepare('SELECT * FROM Claim WHERE id = ?').get(id) as Record<string, unknown> | null
+  return row ? mapClaim(row) : null
+}
+
+export function getUsedProperties(subjectType?: string): Array<{ property: string; count: number }> {
+  const db = getDb()
+  if (subjectType) {
+    return db.prepare(`
+      SELECT c.property, COUNT(*) as count
+      FROM Claim c
+      JOIN Entity e ON e.id = c.subject_entity_id
+      WHERE e.type = ?
+      GROUP BY c.property
+      ORDER BY count DESC, c.property
+    `).all(subjectType) as Array<{ property: string; count: number }>
+  }
+  return db.prepare(`
+    SELECT property, COUNT(*) as count
+    FROM Claim
+    GROUP BY property
+    ORDER BY count DESC, property
+  `).all() as Array<{ property: string; count: number }>
+}
+
 // ─── Relationship paths ───────────────────────────────────────────────────────
 
 export interface RelHop {

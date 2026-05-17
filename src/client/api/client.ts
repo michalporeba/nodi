@@ -95,6 +95,8 @@ export const api = {
       mention_id?: number
       source_id?: number
     }) => post<Claim>('/claims', data),
+    update: (id: number, data: { value?: string | null; object_entity_id?: number | null; property?: string }) =>
+      patch<Claim>(`/claims/${id}`, data),
     delete: (id: number) => del<{ ok: boolean }>(`/claims/${id}`),
   },
 
@@ -112,6 +114,13 @@ export const api = {
 
   relationships: {
     find: (from: number, to: number) => get<RelationshipResult>(`/relationships?from=${from}&to=${to}`),
+  },
+
+  properties: {
+    used: (subjectType?: EntityType) => {
+      const qs = subjectType ? `?subject_type=${subjectType}` : ''
+      return get<Array<{ property: string; count: number }>>(`/properties/used${qs}`)
+    },
   },
 
   export: {

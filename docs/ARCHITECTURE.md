@@ -46,7 +46,26 @@ A `Source` is a fetched web page or a written note. Every source has a `status`:
 
 A source optionally has a **subject**: either a single entity (`subject_entity_id`) or a free-text description (`subject_description`) for pages covering multiple topics. A subject-entity source (e.g. a Wikipedia biography) is considered a primary source for that entity. A subject-description source is a reference. Both nullable — a queued page has no declared subject yet.
 
+**One topic per source.** A source either has a single entity-typed topic or it does not. If a page is about more than one entity it is treated as a reference document — the user supplies a free-text description and no `subject_entity_id` is set. The whole claim-attachment model depends on this: every claim is attributed to a single subject entity, and that subject is normally the page topic.
+
 A source stores the full fetched HTML in `content`. This snapshot is what the annotation layer works against, ensuring annotations remain valid even if the live page changes.
+
+### Page topic vs. active topic
+
+The source viewer exposes two related concepts:
+
+- **Page topic** — the source's `subject_entity_id` (or `subject_description`). Persisted. Set once per source.
+- **Active topic** — transient, per-session state in the viewer. Defaults to the page topic when that is an entity. Switches when the user clicks a confirmed entity highlight in the content (or one of the alternatives in the linked-entity switcher). Claims added from within the source viewer are attributed to whichever entity is currently active.
+
+Selecting raw text and adding a claim attributes the claim to the **active topic**, with the selected text as the claim's value. The text is *not* promoted to an entity by default — `Megan Harries` in the value field of a `cast_member` claim about `Pobol y Cwm` remains a literal string until the user explicitly promotes it. This separates "the value of this claim" from "this is itself an entity".
+
+### Surface forms mapping to multiple entities
+
+A `Mention` is keyed on `(entity_id, source_id)`. A single surface form occurrence in a source can therefore record multiple Mentions — one per entity it stands for. The matching engine collapses these into one match per `(label, candidate_entity_ids[])` group, and its `confirmed_entity_ids` array may contain more than one id.
+
+This is needed for cases like `Megan Harries` referring at the same time to a Character (the role in the show) and a FictionalPerson (the in-universe person). The UI surfaces a small switcher on confirmed highlights so the user can flip the active topic between linked entities and make claims about each.
+
+The author of a multi-entity link adds the new entity from the switcher's `+` affordance: the surface form becomes an alias on that entity if it isn't already, and a Mention row is created for the new (entity, source) pair.
 
 ### Mentions
 
@@ -68,6 +87,12 @@ External IDs are stored separately from claims. Each row records a `system` key 
 
 Wikidata QIDs are stored here as `system='wikidata'`. There is no special `wikidata_qid` column on Entity.
 
+### External search log
+
+`EntitySearchLog` records reconciliation search attempts against external systems. One row per `(entity_id, system)` pair, holding the most recent `last_searched_at` and `result_count`. The Wikidata search route writes to this table on every successful search.
+
+This is not provenance — it's UI memory. When a user has searched Wikidata for an entity and didn't confirm a candidate (either because the search returned nothing, or because they dismissed the candidates), the next visit shows "Wikidata: searched X ago · no results / N results, none selected" instead of re-offering a `Search Wikidata` button. A confirmed `ExternalID(system='wikidata')` row supersedes the log in the UI.
+
 ### Notes
 
 A note is a Source with `type='note'` and no URL. Its content is editable markdown stored in `content`. Notes are annotated identically to web pages — the same string matching runs against the markdown text.
@@ -81,15 +106,27 @@ The matching engine runs server-side. When the client loads a source, it calls `
 1. Loads all Label rows from the database
 2. Scans the source content for each label value, case-insensitively
 3. For each match, looks up existing confirmed Mentions for this source
-4. Returns a list of match objects: `{ label_value, entity_ids[], confirmed_entity_id?, surface_form, positions[] }`
+4. Returns a list of match objects: `{ label_value, entity_ids[], confirmed_entity_ids[], surface_form, positions[], status }`
 
 `positions` are character offsets in the stored HTML/markdown — used only for rendering highlights, never persisted.
 
-If a label matches exactly one entity and there is a confirmed Mention for that entity in this source, it is returned as `confirmed` (green highlight).
+Status resolution intersects candidate entities with confirmed mentions:
 
-If a label matches exactly one entity but has no confirmed Mention, it is returned as `suggested` (amber highlight).
+- `confirmed` — at least one candidate entity has a confirmed Mention for this source. `confirmed_entity_ids` lists every confirmed one; a length > 1 represents a surface form that maps to multiple entities simultaneously (e.g. a `Character` and a `FictionalPerson` sharing the label).
+- `suggested` — one candidate entity, no confirmed Mention yet
+- `ambiguous` — multiple candidate entities, none confirmed yet
 
-If a label matches multiple entities, it is returned as `ambiguous` (amber highlight with disambiguation required).
+The boundary check is lenient — "the outer characters must be non-word (or string edges)" — not the strict `\b` transition. The client-side highlight renderer mirrors this with `(?<=^|\W)...(?=\W|$)` lookarounds rather than `\b`, so that labels ending or starting with punctuation (e.g. `"Megan Harries (née Owen)"`) match in the rendered DOM the same way they match server-side. See `docs/matching.md` for full details.
+
+## Relationship paths
+
+`GET /api/relationships?from=A&to=B` returns claim paths connecting two entities, walking the entity-valued claims graph up to two hops. Both directions count: a claim with subject=A and object=B is reported the same way as one with subject=B and object=A, with hop direction recoverable from the `subject_id`/`object_id` fields.
+
+The viewer uses this between the page-topic block and the active-topic block to make the user's "why is this the active topic?" question visible: when the active topic differs from the page topic, the relationship panel shows the property linking them, or a 2-hop chain through an intermediate (e.g. `Series → cast_member → Person → played → Character`). Clicking the intermediate makes it the active topic; clicking the `×` next to a property deletes that hop's claim.
+
+When no relationship exists, the panel offers an inline quick-add: a property picker plus a save button that creates a `page_topic → property → active_entity` claim with `source_id` set to the current source.
+
+Paths up to two hops are sufficient for the modelled domain (the cast member triangle is at most one intermediate deep). Deeper walks are not implemented; users can navigate one hop at a time by switching the active topic to the intermediate.
 
 ---
 
@@ -106,6 +143,8 @@ If a URL already exists in the Source table (at any status including `irrelevant
 Wikidata reconciliation is triggered manually per entity. The backend calls the Wikidata search API (`wbsearchentities`) with the entity's primary label and type hint, and returns a ranked list of candidates with labels, descriptions, and QIDs. The user selects a match or marks it as "not in Wikidata." The selected QID is stored as an ExternalID row with `system='wikidata'` and `confirmed=true`.
 
 Wikipedia URL reconciliation follows from the QID — once a QID is known, the backend can retrieve the associated Wikipedia page URLs (English, Welsh, others) from the Wikidata API and offer them as ExternalID rows.
+
+Every Wikidata search writes an `EntitySearchLog` row (or updates the existing one for that entity+system). The UI uses this to avoid re-prompting the user to "Search Wikidata" for an entity they've already searched. See "External search log" above.
 
 ---
 

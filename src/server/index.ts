@@ -10,6 +10,7 @@ import claimsRouter from './routes/claims'
 import reconcileRouter from './routes/reconcile'
 import exportRouter from './routes/export'
 import relationshipsRouter from './routes/relationships'
+import propertiesRouter from './routes/properties'
 
 // Initialize DB on startup
 import { initializeSchema } from './db/client'
@@ -30,6 +31,7 @@ api.route('/claims', claimsRouter)
 api.route('/reconcile', reconcileRouter)
 api.route('/export', exportRouter)
 api.route('/relationships', relationshipsRouter)
+api.route('/properties', propertiesRouter)
 
 app.route('/api', api)
 

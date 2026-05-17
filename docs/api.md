@@ -64,29 +64,41 @@ Response:
     "label_value": "Richard Harrington",
     "surface_form": "Richard Harrington",
     "entity_ids": [7],
-    "confirmed_entity_id": 7,
+    "confirmed_entity_ids": [7],
     "status": "confirmed",
-    "positions": [
-      { "start": 1042, "end": 1059 }
-    ]
+    "positions": [{ "start": 1042, "end": 1059 }]
+  },
+  {
+    "label_value": "Megan Harries",
+    "surface_form": "Megan Harries",
+    "entity_ids": [12, 34],
+    "confirmed_entity_ids": [12, 34],
+    "status": "confirmed",
+    "positions": [{ "start": 2301, "end": 2314 }]
   },
   {
     "label_value": "David Lyn",
     "surface_form": "David Lyn",
-    "entity_ids": [12, 34],
-    "confirmed_entity_id": null,
+    "entity_ids": [5, 8],
+    "confirmed_entity_ids": [],
     "status": "ambiguous",
-    "positions": [
-      { "start": 2301, "end": 2309 }
-    ]
+    "positions": [{ "start": 3100, "end": 3109 }]
   }
 ]
 ```
 
 `status` is one of:
-- `confirmed` — a Mention row exists for this entity+source, `confirmed=true`
+- `confirmed` — at least one of the candidate entities has a confirmed Mention for this source. `confirmed_entity_ids` lists them all; one surface form may legitimately map to two or more entities simultaneously (e.g. a Character and a FictionalPerson sharing a label).
 - `suggested` — one candidate entity, no confirmed Mention yet
-- `ambiguous` — multiple candidate entities, requires resolution
+- `ambiguous` — multiple candidate entities, none confirmed yet
+
+`confirmed_entity_ids` is always present (possibly empty).
+
+### `GET /api/sources/by-url`
+Looks up a source by exact URL. Returns the Source row or `null`. Used by the link popover in the source viewer to show queue/status info for a clicked external link before deciding whether to add it to the queue.
+
+Query params:
+- `url` (required) — the URL to look up
 
 ### `GET /api/sources/:id/links`
 Returns all SourceLink candidates harvested from this source.
@@ -144,7 +156,23 @@ Response:
 ```
 
 ### `GET /api/entities/:id`
-Returns full entity detail: labels, external IDs, all claims with provenance, all mentions with source titles.
+Returns full entity detail: labels, external IDs, all claims with provenance, all mentions with source titles, and `search_logs` — one row per external system the entity has been searched against (e.g. Wikidata), used by the UI to surface "already searched, no result selected" hints.
+
+Response (abridged):
+```json
+{
+  "id": 7,
+  "type": "Person",
+  "primary_label": "Richard Harrington",
+  "labels": [...],
+  "external_ids": [...],
+  "claims": [...],
+  "mentions": [...],
+  "search_logs": [
+    { "system": "wikidata", "last_searched_at": "2026-05-16T11:04:00Z", "result_count": 0 }
+  ]
+}
+```
 
 ### `POST /api/entities`
 Creates a new entity.
@@ -274,8 +302,77 @@ Request (entity value):
 }
 ```
 
+### `PATCH /api/claims/:id`
+Updates a claim's `property`, `value`, or `object_entity_id`. Any field omitted is unchanged; pass `null` explicitly to clear `value` or `object_entity_id`.
+
+Common edits:
+- **Edit the property** of an existing claim: `{ "property": "performer" }`
+- **Edit a text value**: `{ "value": "1975-07-27" }`
+- **Promote a text value to an entity reference**: `{ "value": null, "object_entity_id": 42 }`
+- **Unlink an entity-valued claim back to a text label**: `{ "object_entity_id": null, "value": "Richard Harrington" }`
+- **Replace the linked entity** with a different one: `{ "object_entity_id": 99, "value": null }`
+
+The server does not enforce the "exactly one of value/object_entity_id" rule; callers should set the other to `null` when switching kinds.
+
 ### `DELETE /api/claims/:id`
 Removes a claim.
+
+---
+
+## Relationships
+
+### `GET /api/relationships`
+Returns claim paths connecting two entities, up to two hops, in either direction. Used by the source viewer to surface the relationship between the page topic and the active topic.
+
+Query params:
+- `from` (required) — first entity id
+- `to` (required) — second entity id
+
+Response:
+```json
+{
+  "paths": [
+    {
+      "hops": [
+        { "claim_id": 17, "subject_id": 42, "property": "cast_member", "object_id": 7 }
+      ]
+    },
+    {
+      "hops": [
+        { "claim_id": 18, "subject_id": 42, "property": "character", "object_id": 91 },
+        { "claim_id": 23, "subject_id": 91, "property": "performer",  "object_id": 7 }
+      ],
+      "intermediate_id": 91
+    }
+  ],
+  "entities": {
+    "7":  { "id": 7,  "type": "Person",    "primary_label": "Richard Harrington" },
+    "42": { "id": 42, "type": "Series",    "primary_label": "Hinterland" },
+    "91": { "id": 91, "type": "Character", "primary_label": "Tom Mathias" }
+  }
+}
+```
+
+Each hop records subject_id, property, object_id verbatim from the underlying Claim — the direction is encoded by which side of the hop is the user's `from` versus `to`. 2-hop paths include `intermediate_id`. Paths in both directions are returned (e.g. `from → prop → to` and `to → prop → from` are separate paths). `entities` resolves all involved ids to a display label and type.
+
+---
+
+## Properties
+
+### `GET /api/properties/used`
+Returns distinct property keys already used in claims, with usage counts, ordered most-used first. Used by the property picker to suggest property names that are already in the DB alongside the curated list from `docs/domain.md`.
+
+Query params:
+- `subject_type` (optional) — restrict the count to claims whose subject entity has this type. Used to surface type-appropriate suggestions (e.g. when adding a property to a Series, only show properties already used on Series subjects).
+
+Response:
+```json
+[
+  { "property": "cast_member", "count": 142 },
+  { "property": "director",    "count": 38 },
+  { "property": "publication_date", "count": 24 }
+]
+```
 
 ---
 
@@ -288,6 +385,8 @@ Query params:
 - `entity_id` — local entity ID (uses primary label + type for search)
 - `q` — free text search (alternative to entity_id)
 - `type` — entity type hint for search
+
+When `entity_id` is supplied, the server **records the search attempt** in `EntitySearchLog` (system=`wikidata`) with the current timestamp and result count. This is what powers the "already searched X ago · N results, none selected" hint shown in the UI on subsequent loads. The log is updated each time the search runs; confirming a candidate creates an `ExternalID` row which takes precedence over the log in the UI.
 
 Response:
 ```json
