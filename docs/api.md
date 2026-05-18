@@ -164,7 +164,23 @@ Response (abridged):
   "primary_label": "Richard Harrington",
   "labels": [...],
   "external_ids": [...],
-  "claims": [...],
+  "claims": [
+    {
+      "id": 17,
+      "subject_entity_id": 7,
+      "subject_label": null,
+      "property": "occupation",
+      "value": "actor",
+      "object_entity_id": null,
+      "object_label": null,
+      "object_type": null,
+      "mention_id": null,
+      "source_id": 1,
+      "source_title": "Richard Harrington - Wikipedia",
+      "notable": false,
+      "created_at": "2026-05-16T10:05:00Z"
+    }
+  ],
   "mentions": [...],
   "search_logs": [
     { "system": "wikidata", "last_searched_at": "2026-05-16T11:04:00Z", "result_count": 0 }
