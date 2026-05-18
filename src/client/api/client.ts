@@ -41,7 +41,10 @@ export const api = {
     fetch: (url: string, origin: SourceOrigin = 'manual') => post<Source>('/sources/fetch', { url, origin }),
     update: (id: number, data: Partial<Pick<Source, 'status' | 'title' | 'subject_entity_id' | 'subject_confirmed' | 'subject_description'>>) =>
       patch<Source>(`/sources/${id}`, data),
-    matches: (id: number) => get<Match[]>(`/sources/${id}/matches`),
+    matches: (id: number, domains?: string[]) => {
+      const params = domains?.length ? `?domains=${encodeURIComponent(domains.join(','))}` : ''
+      return get<Match[]>(`/sources/${id}/matches${params}`)
+    },
     links: (id: number) => get<SourceLink[]>(`/sources/${id}/links`),
     queueLinks: (id: number, urls: string[]) => post<{ queued: number }>(`/sources/${id}/links/queue`, { urls }),
     confirmAll: (id: number) => post<{ confirmed: number; skipped_ambiguous: unknown[] }>(`/sources/${id}/mentions/confirm-all`, {}),

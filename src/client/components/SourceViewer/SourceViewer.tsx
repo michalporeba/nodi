@@ -7,6 +7,7 @@ import { SourceContent } from './SourceContent'
 import { TopicSection, ActiveTopicSection, ActionsSection, RelationshipConnector } from './EntityPanel'
 import { PropertyPicker } from '../PropertyPicker'
 import { useOntology, getPropertyShape, type SeedClaim } from '../../data/ontology'
+import { useActiveDomains } from '../../data/activeDomains'
 
 // ─── Popovers ─────────────────────────────────────────────────────────────────
 
@@ -486,6 +487,7 @@ export function SourceViewer() {
   const navigate = useNavigate()
   const sourceId = parseInt(id ?? '0')
 
+  const [activeDomains] = useActiveDomains()
   const [source, setSource] = useState<Source | null>(null)
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
@@ -501,12 +503,12 @@ export function SourceViewer() {
     setLoading(true)
     Promise.all([
       api.sources.get(sourceId).then(s => { setSource(s); if (s.status === 'queued') api.sources.update(sourceId, { status: 'active' }).then(setSource) }),
-      api.sources.matches(sourceId).then(m => { setMatches(m); setMatchesLoading(false) }),
+      api.sources.matches(sourceId, activeDomains).then(m => { setMatches(m); setMatchesLoading(false) }),
     ]).finally(() => setLoading(false))
   }, [sourceId])
 
   const reloadMatches = useCallback(async () => {
-    const m = await api.sources.matches(sourceId)
+    const m = await api.sources.matches(sourceId, activeDomains)
     setMatches(m)
     setPopover(null)
     setRelReloadToken(t => t + 1)

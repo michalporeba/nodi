@@ -99,6 +99,10 @@ router.patch('/:id', async c => {
 
 router.get('/:id/matches', async c => {
   const id = parseInt(c.req.param('id'))
+  const domainsParam = c.req.query('domains')
+  if (domainsParam) {
+    console.warn(`[matches] domains filter param received ("${domainsParam}") but not yet applied server-side`)
+  }
   const source = getSource(id)
   if (!source) return c.json({ error: 'Not found' }, 404)
   if (!source.content) return c.json([])
