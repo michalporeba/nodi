@@ -98,6 +98,7 @@ export interface Claim {
   object_entity_id: number | null
   mention_id: number | null
   source_id: number | null
+  notable: boolean
   created_at: string
 }
 
@@ -197,6 +198,7 @@ function mapClaim(row: Record<string, unknown>): Claim {
     object_entity_id: row.object_entity_id as number | null,
     mention_id: row.mention_id as number | null,
     source_id: row.source_id as number | null,
+    notable: Boolean(row.notable),
     created_at: row.created_at as string,
   }
 }

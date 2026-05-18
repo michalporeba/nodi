@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS Claim (
   object_entity_id    INTEGER REFERENCES Entity(id),
   mention_id          INTEGER REFERENCES Mention(id),
   source_id           INTEGER REFERENCES Source(id),
+  notable             INTEGER NOT NULL DEFAULT 0,
   created_at          TEXT NOT NULL DEFAULT (datetime('now')),
   CHECK (subject_entity_id IS NOT NULL OR subject_label IS NOT NULL)
 );

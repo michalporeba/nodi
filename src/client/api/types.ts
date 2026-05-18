@@ -84,6 +84,7 @@ export interface Claim {
   mention_id: number | null
   source_id: number | null
   source_title: string | null
+  notable: boolean
   created_at: string
 }
 

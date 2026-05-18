@@ -49,6 +49,9 @@ export function getDb(): Database {
     `)
   }
 
+  // Add notable flag to Claim
+  try { _db.exec('ALTER TABLE Claim ADD COLUMN notable INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
+
   // Migrate Mention uniqueness from (entity_id, source_id) to (entity_id, source_id, surface_form)
   const mentionIndices = _db.prepare("PRAGMA index_list(Mention)").all() as Array<{ name: string; unique: number }>
   const hasThreeColUniq = mentionIndices.some(idx => {
