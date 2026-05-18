@@ -7,16 +7,7 @@ type Params = SQLQueryBindings[]
 
 export type SourceStatus = 'queued' | 'active' | 'done' | 'irrelevant'
 export type SourceType = 'url' | 'note'
-export type EntityType =
-  | 'Person'
-  | 'FictionalPerson'
-  | 'Character'
-  | 'Film'
-  | 'Series'
-  | 'Episode'
-  | 'Organisation'
-  | 'Location'
-  | 'Other'
+export type EntityType = string
 
 export interface Source {
   id: number

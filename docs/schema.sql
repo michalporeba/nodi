@@ -37,18 +37,7 @@ CREATE TABLE IF NOT EXISTS SourceLink (
 
 CREATE TABLE IF NOT EXISTS Entity (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  type        TEXT NOT NULL
-                CHECK(type IN (
-                  'Person',
-                  'FictionalPerson',
-                  'Character',
-                  'Film',
-                  'Series',
-                  'Episode',
-                  'Organisation',
-                  'Location',
-                  'Other'
-                )),
+  type        TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -21,6 +21,23 @@ export function getDb(): Database {
   // Additive migrations for existing databases
   try { _db.exec("ALTER TABLE Source ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'") } catch { /* already exists */ }
 
+  // Drop hardcoded CHECK constraint on Entity.type (types now come from ontology)
+  const entitySchema = (_db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='Entity'").get() as { sql: string } | null)?.sql ?? ''
+  if (entitySchema.includes('CHECK')) {
+    _db.exec(`
+      PRAGMA foreign_keys=OFF;
+      CREATE TABLE Entity_new (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        type        TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO Entity_new SELECT id, type, created_at FROM Entity;
+      DROP TABLE Entity;
+      ALTER TABLE Entity_new RENAME TO Entity;
+      PRAGMA foreign_keys=ON;
+    `)
+  }
+
   // Migrate Claim: make subject_entity_id nullable, add subject_label, add CHECK
   const claimCols = (_db.prepare("PRAGMA table_info(Claim)").all() as Array<{ name: string }>).map(c => c.name)
   if (!claimCols.includes('subject_label')) {
