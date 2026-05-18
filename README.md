@@ -65,6 +65,8 @@ src/
 data/
   nodi.db           # SQLite database (gitignored)
 docs/
+  PRD.md            # product requirements and regression guardrails
+  terms.md          # shared vocabulary for source review and graph data
   schema.sql        # canonical schema
   ARCHITECTURE.md   # data model and design decisions
   api.md            # API routes reference

@@ -89,18 +89,6 @@ router.post('/fetch', async c => {
   return c.json(source, 201)
 })
 
-router.post('/notes', async c => {
-  const body = await c.req.json() as { title?: string; content?: string }
-  const source = createSource({
-    type: 'note',
-    title: body.title ?? null,
-    content: body.content ?? null,
-    status: 'queued',
-    origin: 'manual',
-  })
-  return c.json(source, 201)
-})
-
 router.patch('/:id', async c => {
   const id = parseInt(c.req.param('id'))
   const body = await c.req.json()
