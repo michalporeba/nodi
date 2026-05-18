@@ -20,9 +20,17 @@ export interface PropertyShape {
   seed_claims: SeedClaim[]
 }
 
+export interface TemplateShape {
+  name: string
+  target_class: string
+  seed_claims: SeedClaim[]
+  source: string
+}
+
 export interface Ontology {
   classes: string[]
   properties: PropertyShape[]
+  templates: TemplateShape[]
 }
 
 let cache: Ontology | null = null

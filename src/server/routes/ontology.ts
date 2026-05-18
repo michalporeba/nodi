@@ -8,6 +8,7 @@ router.get('/', c => {
   return c.json({
     classes: ont.classes,
     properties: ont.properties,
+    templates: ont.templates,
   })
 })
 
