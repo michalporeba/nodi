@@ -806,17 +806,21 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
   const [loading, setLoading] = useState(true)
   const [addingClaim, setAddingClaim] = useState(false)
   const [newClaim, setNewClaim] = useState({ property: '', value: '' })
+  const [addingLabel, setAddingLabel] = useState(false)
+  const [newLabel, setNewLabel] = useState({ value: '', language: 'en' })
+  const [addingEid, setAddingEid] = useState(false)
+  const [newEid, setNewEid] = useState({ system: '', value: '', url: '' })
 
   useEffect(() => {
     setLoading(true)
     api.entities.get(entityId).then(setEntity).finally(() => setLoading(false))
   }, [entityId])
 
-  async function addLabel() {
-    const value = window.prompt('Label text:')
-    if (!value || !entity) return
-    const lang = window.prompt('Language (e.g. en, cy):', 'en')
-    await api.labels.add(entity.id, { value, language: lang ?? 'en', is_alias: true })
+  async function saveLabel() {
+    if (!newLabel.value.trim() || !entity) return
+    await api.labels.add(entity.id, { value: newLabel.value.trim(), language: newLabel.language || 'en', is_alias: true })
+    setNewLabel({ value: '', language: 'en' })
+    setAddingLabel(false)
     const updated = await api.entities.get(entity.id)
     setEntity(updated)
   }
@@ -850,14 +854,16 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
     setEntity(updated)
   }
 
-  async function addExternalId() {
-    if (!entity) return
-    const system = window.prompt('System (e.g. imdb, bbc_programme):')
-    if (!system) return
-    const value = window.prompt('ID value:')
-    if (!value) return
-    const url = window.prompt('URL (optional):') ?? undefined
-    await api.externalIds.add(entity.id, { system, value, url, confirmed: true })
+  async function saveExternalId() {
+    if (!newEid.system.trim() || !newEid.value.trim() || !entity) return
+    await api.externalIds.add(entity.id, {
+      system: newEid.system.trim(),
+      value: newEid.value.trim(),
+      url: newEid.url.trim() || undefined,
+      confirmed: true,
+    })
+    setNewEid({ system: '', value: '', url: '' })
+    setAddingEid(false)
     const updated = await api.entities.get(entity.id)
     setEntity(updated)
   }
@@ -897,7 +903,18 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
             )}
           </div>
         ))}
-        <button className="btn btn-ghost btn-sm" onClick={addLabel} style={{ marginTop: 4 }}>+ alias</button>
+        {addingLabel ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            <input className="input" placeholder="Label text" value={newLabel.value} onChange={e => setNewLabel(p => ({ ...p, value: e.target.value }))} style={{ fontSize: 12 }} autoFocus />
+            <input className="input" placeholder="Language (e.g. en, cy)" value={newLabel.language} onChange={e => setNewLabel(p => ({ ...p, language: e.target.value }))} style={{ fontSize: 12 }} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-primary btn-sm" onClick={saveLabel}>Save</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setAddingLabel(false)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn btn-ghost btn-sm" onClick={() => setAddingLabel(true)} style={{ marginTop: 4 }}>+ alias</button>
+        )}
       </div>
 
       {/* External IDs */}
@@ -912,8 +929,19 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
             </span>
           </div>
         ))}
+        {addingEid && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            <input className="input" placeholder="System (e.g. imdb, bbc_programme)" value={newEid.system} onChange={e => setNewEid(p => ({ ...p, system: e.target.value }))} style={{ fontSize: 12 }} autoFocus />
+            <input className="input" placeholder="ID value" value={newEid.value} onChange={e => setNewEid(p => ({ ...p, value: e.target.value }))} style={{ fontSize: 12 }} />
+            <input className="input" placeholder="URL (optional)" value={newEid.url} onChange={e => setNewEid(p => ({ ...p, url: e.target.value }))} style={{ fontSize: 12 }} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-primary btn-sm" onClick={saveExternalId}>Save</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setAddingEid(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-          <button className="btn btn-ghost btn-sm" onClick={addExternalId}>+ add ID</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setAddingEid(true)}>+ add ID</button>
           <WikidataSearch
             entityId={entity.id}
             entityType={entity.type}

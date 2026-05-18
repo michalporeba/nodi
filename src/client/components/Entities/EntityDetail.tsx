@@ -118,6 +118,8 @@ export function EntityDetail() {
   const [newClaim, setNewClaim] = useState({ property: '', value: '' })
   const [addingLabel, setAddingLabel] = useState(false)
   const [newLabel, setNewLabel] = useState({ value: '', language: 'en' })
+  const [addingEid, setAddingEid] = useState(false)
+  const [newEid, setNewEid] = useState({ system: '', value: '', url: '' })
 
   useEffect(() => {
     if (!entityId) return
@@ -157,14 +159,16 @@ export function EntityDetail() {
     setEntity(updated)
   }
 
-  async function handleAddExternalId() {
-    if (!entity) return
-    const system = window.prompt('System (wikidata, imdb, bbc_programme, bfi, tmdb_movie, tmdb_tv):')
-    if (!system) return
-    const value = window.prompt('ID value:')
-    if (!value) return
-    const url = window.prompt('Full URL (optional):') ?? undefined
-    await api.externalIds.add(entity.id, { system, value, url, confirmed: true })
+  async function handleSaveExternalId() {
+    if (!newEid.system.trim() || !newEid.value.trim() || !entity) return
+    await api.externalIds.add(entity.id, {
+      system: newEid.system.trim(),
+      value: newEid.value.trim(),
+      url: newEid.url.trim() || undefined,
+      confirmed: true,
+    })
+    setNewEid({ system: '', value: '', url: '' })
+    setAddingEid(false)
     const updated = await api.entities.get(entity.id)
     setEntity(updated)
   }
@@ -306,8 +310,19 @@ export function EntityDetail() {
                 <button className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} onClick={() => handleDeleteExternalId(eid.id)}>×</button>
               </div>
             ))}
+            {addingEid && (
+              <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--content-border)' }}>
+                <input className="input" placeholder="System (e.g. imdb, wikidata)" value={newEid.system} onChange={e => setNewEid(p => ({ ...p, system: e.target.value }))} autoFocus style={{ fontSize: 13 }} />
+                <input className="input" placeholder="ID value" value={newEid.value} onChange={e => setNewEid(p => ({ ...p, value: e.target.value }))} style={{ fontSize: 13 }} />
+                <input className="input" placeholder="URL (optional)" value={newEid.url} onChange={e => setNewEid(p => ({ ...p, url: e.target.value }))} style={{ fontSize: 13 }} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-primary btn-sm" onClick={handleSaveExternalId}>Save</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setAddingEid(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
             <div style={{ padding: '8px 16px' }}>
-              <button className="btn btn-ghost btn-sm" onClick={handleAddExternalId}>+ Add ID</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setAddingEid(true)}>+ Add ID</button>
             </div>
           </div>
         </Section>
