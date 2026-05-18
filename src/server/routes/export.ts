@@ -86,7 +86,7 @@ router.get('/csv', c => {
   }
 
   // Build a combined CSV with type column
-  const rows = ['type,id,primary_label,wikidata_qid,mention_count,claim_count']
+  const rows = ['type,id,primary_label,wikidata_external_id,mention_count,claim_count']
   for (const entity of entities) {
     const qid = entity.external_ids.find(e => e.system === 'wikidata')?.value ?? ''
     rows.push([entity.type, entity.id, `"${entity.primary_label.replace(/"/g, '""')}"`, qid, entity.mention_count, entity.claim_count].join(','))
