@@ -61,15 +61,15 @@ Selecting raw text and adding a claim attributes the claim to the **active topic
 
 ### Surface forms mapping to multiple entities
 
-A `Mention` is keyed on `(entity_id, source_id)`. A single surface form occurrence in a source can therefore record multiple Mentions — one per entity it stands for. The matching engine collapses these into one match per `(label, candidate_entity_ids[])` group, and its `confirmed_entity_ids` array may contain more than one id.
+A `Mention` is keyed on `(entity_id, source_id, surface_form)`. A single surface form occurrence in a source can therefore record multiple Mentions — one per entity it stands for. The matching engine collapses these into one match per `(label, candidate_entity_ids[])` group, and its `confirmed_entity_ids` array may contain more than one id.
 
 This is needed for cases like `Megan Harries` referring at the same time to a Character (the role in the show) and a FictionalPerson (the in-universe person). The UI surfaces a small switcher on confirmed highlights so the user can flip the active topic between linked entities and make claims about each.
 
-The author of a multi-entity link adds the new entity from the switcher's `+` affordance: the surface form becomes an alias on that entity if it isn't already, and a Mention row is created for the new (entity, source) pair.
+The author of a multi-entity link adds the new entity from the switcher's `+` affordance: the surface form becomes an alias on that entity if it isn't already, and a Mention row is created for the new (entity, source, surface_form) triple.
 
 ### Mentions
 
-A `Mention` is a confirmed link between an entity and a source — "this entity is referred to in this document." Mentions record the `surface_form` (the exact string that appeared) to handle spelling variants. One mention row per (entity, source) pair. The `confirmed` flag distinguishes manually confirmed mentions from those accepted via "confirm all."
+A `Mention` is a confirmed link between an entity and a source — "this entity is referred to in this document." Mentions record the `surface_form` (the exact string that appeared) to handle spelling variants. One mention row per (entity, source, surface_form) triple. The `confirmed` flag distinguishes manually confirmed mentions from those accepted via "confirm all."
 
 Unconfirmed pattern matches (suggestions) are not stored — they are computed by the matching engine on each page load and rendered as amber highlights. They become Mention rows only when confirmed.
 

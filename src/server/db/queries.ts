@@ -513,7 +513,7 @@ export function getConfirmedMentionsBySource(sourceId: number): Mention[] {
 
 export function createMention(data: { entity_id: number; source_id: number; surface_form: string }): Mention {
   const db = getDb()
-  const existing = db.prepare('SELECT * FROM Mention WHERE entity_id = ? AND source_id = ?').get(data.entity_id, data.source_id) as Record<string, unknown> | null
+  const existing = db.prepare('SELECT * FROM Mention WHERE entity_id = ? AND source_id = ? AND surface_form = ?').get(data.entity_id, data.source_id, data.surface_form) as Record<string, unknown> | null
   if (existing) return mapMention(existing)
 
   const now = new Date().toISOString()

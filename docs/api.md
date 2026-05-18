@@ -254,7 +254,7 @@ Request:
 }
 ```
 
-If a Mention already exists for this (entity, source) pair, returns the existing row.
+If a Mention already exists for this (entity, source, surface_form) tuple, returns the existing row.
 
 ### `POST /api/sources/:id/mentions/confirm-all`
 Confirms all unambiguous suggestions for this source — creates Mention rows for all pattern matches that have exactly one candidate entity and no existing confirmed Mention. Ambiguous matches (multiple candidates) are skipped and returned in the response for manual resolution.
