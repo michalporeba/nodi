@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { api } from '../api/client'
 import type { EntityType } from '../api/types'
-import { getCuratedProperties, type PropertyDef } from '../data/properties'
+import { getCuratedProperties, useOntology, type PropertyShape } from '../data/ontology'
 
 interface Props {
   value: string
@@ -17,7 +17,7 @@ interface Props {
 type Suggestion = {
   key: string
   source: 'curated' | 'used'
-  def?: PropertyDef
+  def?: PropertyShape
   count?: number
 }
 
@@ -28,6 +28,7 @@ export function PropertyPicker({
   const [open, setOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const ontology = useOntology()
 
   useEffect(() => {
     api.properties.used(subjectType).then(setUsed).catch(() => setUsed([]))
@@ -46,7 +47,7 @@ export function PropertyPicker({
     const q = value.trim().toLowerCase()
     const out = new Map<string, Suggestion>()
 
-    for (const p of getCuratedProperties(subjectType)) {
+    for (const p of getCuratedProperties(ontology, subjectType)) {
       if (!q || p.key.toLowerCase().includes(q)) {
         out.set(p.key, { key: p.key, source: 'curated', def: p })
       }
@@ -58,7 +59,7 @@ export function PropertyPicker({
     }
 
     return [...out.values()].slice(0, 12)
-  }, [value, used, subjectType])
+  }, [value, used, subjectType, ontology])
 
   const exactMatch = suggestions.some(s => s.key === value.trim())
   const showCustom = value.trim().length > 0 && !exactMatch

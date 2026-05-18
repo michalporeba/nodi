@@ -1,22 +1,9 @@
 import { Hono } from 'hono'
 import { Writer, DataFactory } from 'n3'
 import { getAllEntitiesForExport } from '../db/queries'
+import { getOntology } from '../ontology/loader'
 
 const { namedNode, literal, quad } = DataFactory
-
-const WIKIDATA_PID: Record<string, string> = {
-  title: 'P1476', director: 'P57', screenwriter: 'P58', producer: 'P162',
-  composer: 'P86', film_editor: 'P1040', cast_member: 'P161', character: 'P674',
-  publication_date: 'P577', part_of_series: 'P179', series_ordinal: 'P1545',
-  season: 'P4908', genre: 'P136', main_subject: 'P921', country_of_origin: 'P495',
-  original_language: 'P364', original_broadcaster: 'P449', production_company: 'P272',
-  narrative_location: 'P840', filming_location: 'P915', based_on: 'P144',
-  present_in_work: 'P1441', performer: 'P175', voice_actor: 'P725',
-  first_appearance: 'P4584', given_name: 'P735', family_name: 'P734',
-  gender: 'P21', occupation: 'P106', date_of_birth: 'P569', place_of_birth: 'P19',
-  father: 'P22', mother: 'P25', sibling: 'P3373', spouse: 'P26', child: 'P40',
-  country: 'P17', inception: 'P571',
-}
 
 const RDFS = 'http://www.w3.org/2000/01/rdf-schema#'
 const WD = 'http://www.wikidata.org/entity/'
@@ -30,6 +17,7 @@ router.get('/turtle', async c => {
   const entityIds = entityIdsParam ? entityIdsParam.split(',').map(Number) : undefined
 
   const entities = getAllEntitiesForExport(entityIds)
+  const pidMap = getOntology().pid_map
 
   const writer = new Writer({ prefixes: { wd: WD, wdt: WDT, rdfs: RDFS, nodi: LOCAL } })
 
@@ -60,7 +48,7 @@ router.get('/turtle', async c => {
 
     // Claims
     for (const claim of entity.claims) {
-      const pid = WIKIDATA_PID[claim.property]
+      const pid = pidMap[claim.property]
       const predicate = pid ? namedNode(`${WDT}${pid}`) : namedNode(`${LOCAL}prop/${claim.property}`)
 
       if (claim.object_entity_id) {

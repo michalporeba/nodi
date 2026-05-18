@@ -81,6 +81,7 @@ export interface Claim {
   value: string | null
   object_entity_id: number | null
   object_label: string | null
+  object_type: string | null
   mention_id: number | null
   source_id: number | null
   source_title: string | null

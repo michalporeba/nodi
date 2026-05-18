@@ -1,0 +1,283 @@
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix wdt:  <http://www.wikidata.org/prop/direct/> .
+@prefix nodi: <http://nodi.local/ontology#> .
+
+# ─── Entity classes ──────────────────────────────────────────────────────────
+nodi:Person          a rdfs:Class ; rdfs:label "Person" .
+nodi:FictionalPerson a rdfs:Class ; rdfs:label "FictionalPerson" .
+nodi:Character       a rdfs:Class ; rdfs:label "Character" .
+nodi:Film            a rdfs:Class ; rdfs:label "Film" .
+nodi:Series          a rdfs:Class ; rdfs:label "Series" .
+nodi:Episode         a rdfs:Class ; rdfs:label "Episode" .
+nodi:Organisation    a rdfs:Class ; rdfs:label "Organisation" .
+nodi:Location        a rdfs:Class ; rdfs:label "Location" .
+nodi:Other           a rdfs:Class ; rdfs:label "Other" .
+
+# ─── Properties ──────────────────────────────────────────────────────────────
+# Each rdf:Property carries:
+#   rdfs:label                 — short key used in Claim.property
+#   sh:datatype  xsd:string    — for text-valued properties
+#   sh:class     nodi:Foo      — for entity-valued properties (allowed range)
+#   nodi:textAllowed true      — string fallback allowed alongside an entity range
+#   nodi:defaultEntityType     — preselected target on text→entity promotion
+#   nodi:seedClaim [...]       — claims to auto-add when promoting
+
+# Films, Series, Episodes
+wdt:P1476 a rdf:Property ;
+  rdfs:label "title" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P136 a rdf:Property ;
+  rdfs:label "genre" ;
+  sh:class nodi:Other ;
+  nodi:defaultEntityType nodi:Other .
+
+wdt:P921 a rdf:Property ;
+  rdfs:label "main_subject" ;
+  sh:class nodi:Other ;
+  nodi:defaultEntityType nodi:Other .
+
+wdt:P495 a rdf:Property ;
+  rdfs:label "country_of_origin" ;
+  sh:class nodi:Location ;
+  nodi:defaultEntityType nodi:Location .
+
+wdt:P364 a rdf:Property ;
+  rdfs:label "original_language" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P449 a rdf:Property ;
+  rdfs:label "original_broadcaster" ;
+  sh:class nodi:Organisation ;
+  nodi:defaultEntityType nodi:Organisation .
+
+wdt:P272 a rdf:Property ;
+  rdfs:label "production_company" ;
+  sh:class nodi:Organisation ;
+  nodi:defaultEntityType nodi:Organisation .
+
+wdt:P161 a rdf:Property ;
+  rdfs:label "cast_member" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "actor" ] .
+
+wdt:P674 a rdf:Property ;
+  rdfs:label "character" ;
+  sh:class nodi:Character ;
+  nodi:defaultEntityType nodi:Character .
+
+wdt:P840 a rdf:Property ;
+  rdfs:label "narrative_location" ;
+  sh:class nodi:Location ;
+  nodi:defaultEntityType nodi:Location .
+
+wdt:P915 a rdf:Property ;
+  rdfs:label "filming_location" ;
+  sh:class nodi:Location ;
+  nodi:defaultEntityType nodi:Location .
+
+wdt:P144 a rdf:Property ;
+  rdfs:label "based_on" ;
+  sh:class nodi:Other ;
+  nodi:defaultEntityType nodi:Other .
+
+wdt:P57 a rdf:Property ;
+  rdfs:label "director" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "director" ] .
+
+wdt:P58 a rdf:Property ;
+  rdfs:label "screenwriter" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "screenwriter" ] .
+
+wdt:P162 a rdf:Property ;
+  rdfs:label "producer" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "producer" ] .
+
+wdt:P86 a rdf:Property ;
+  rdfs:label "composer" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "composer" ] .
+
+wdt:P1040 a rdf:Property ;
+  rdfs:label "film_editor" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "film editor" ] .
+
+wdt:P577 a rdf:Property ;
+  rdfs:label "publication_date" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P179 a rdf:Property ;
+  rdfs:label "part_of_series" ;
+  sh:class nodi:Series ;
+  nodi:defaultEntityType nodi:Series .
+
+wdt:P1545 a rdf:Property ;
+  rdfs:label "series_ordinal" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P4908 a rdf:Property ;
+  rdfs:label "season" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+# Characters / FictionalPerson
+wdt:P1441 a rdf:Property ;
+  rdfs:label "present_in_work" ;
+  sh:class nodi:Film ;
+  nodi:defaultEntityType nodi:Film .
+
+wdt:P175 a rdf:Property ;
+  rdfs:label "performer" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "actor" ] .
+
+wdt:P725 a rdf:Property ;
+  rdfs:label "voice_actor" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person ;
+  nodi:seedClaim [ nodi:property "occupation" ; nodi:value "voice actor" ] .
+
+wdt:P4584 a rdf:Property ;
+  rdfs:label "first_appearance" ;
+  sh:class nodi:Episode ;
+  nodi:defaultEntityType nodi:Episode .
+
+wdt:P735 a rdf:Property ;
+  rdfs:label "given_name" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P734 a rdf:Property ;
+  rdfs:label "family_name" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P21 a rdf:Property ;
+  rdfs:label "gender" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P106 a rdf:Property ;
+  rdfs:label "occupation" ;
+  sh:class nodi:Other ;
+  nodi:textAllowed true ;
+  nodi:defaultEntityType nodi:Other .
+
+wdt:P22 a rdf:Property ;
+  rdfs:label "father" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person .
+
+wdt:P25 a rdf:Property ;
+  rdfs:label "mother" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person .
+
+wdt:P3373 a rdf:Property ;
+  rdfs:label "sibling" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person .
+
+wdt:P26 a rdf:Property ;
+  rdfs:label "spouse" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person .
+
+wdt:P40 a rdf:Property ;
+  rdfs:label "child" ;
+  sh:class nodi:Person ;
+  nodi:defaultEntityType nodi:Person .
+
+# Persons
+wdt:P569 a rdf:Property ;
+  rdfs:label "date_of_birth" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+wdt:P19 a rdf:Property ;
+  rdfs:label "place_of_birth" ;
+  sh:class nodi:Location ;
+  nodi:defaultEntityType nodi:Location .
+
+# Local-only inverse of cast_member; no Wikidata PID.
+nodi:cast_member_of a rdf:Property ;
+  rdfs:label "cast_member_of" ;
+  sh:class nodi:Film ;
+  nodi:defaultEntityType nodi:Film .
+
+# Organisations
+wdt:P17 a rdf:Property ;
+  rdfs:label "country" ;
+  sh:class nodi:Location ;
+  nodi:defaultEntityType nodi:Location .
+
+wdt:P571 a rdf:Property ;
+  rdfs:label "inception" ;
+  sh:datatype <http://www.w3.org/2001/XMLSchema#string> .
+
+# ─── Node shapes (which properties apply to which entity type) ───────────────
+nodi:FilmShape a sh:NodeShape ;
+  sh:targetClass nodi:Film ;
+  sh:property
+    [ sh:path wdt:P1476 ] , [ sh:path wdt:P136  ] , [ sh:path wdt:P921 ] ,
+    [ sh:path wdt:P495  ] , [ sh:path wdt:P364  ] , [ sh:path wdt:P449 ] ,
+    [ sh:path wdt:P272  ] , [ sh:path wdt:P161  ] , [ sh:path wdt:P674 ] ,
+    [ sh:path wdt:P840  ] , [ sh:path wdt:P915  ] , [ sh:path wdt:P144 ] ,
+    [ sh:path wdt:P57   ] , [ sh:path wdt:P58   ] , [ sh:path wdt:P162 ] ,
+    [ sh:path wdt:P86   ] , [ sh:path wdt:P1040 ] , [ sh:path wdt:P577 ] ,
+    [ sh:path wdt:P179  ] .
+
+nodi:SeriesShape a sh:NodeShape ;
+  sh:targetClass nodi:Series ;
+  sh:property
+    [ sh:path wdt:P1476 ] , [ sh:path wdt:P136  ] , [ sh:path wdt:P921 ] ,
+    [ sh:path wdt:P495  ] , [ sh:path wdt:P364  ] , [ sh:path wdt:P449 ] ,
+    [ sh:path wdt:P272  ] , [ sh:path wdt:P161  ] , [ sh:path wdt:P674 ] ,
+    [ sh:path wdt:P840  ] , [ sh:path wdt:P915  ] , [ sh:path wdt:P144 ] ,
+    [ sh:path wdt:P57   ] , [ sh:path wdt:P58   ] , [ sh:path wdt:P162 ] ,
+    [ sh:path wdt:P86   ] , [ sh:path wdt:P1040 ] , [ sh:path wdt:P577 ] .
+
+nodi:EpisodeShape a sh:NodeShape ;
+  sh:targetClass nodi:Episode ;
+  sh:property
+    [ sh:path wdt:P1476 ] , [ sh:path wdt:P161  ] , [ sh:path wdt:P674 ] ,
+    [ sh:path wdt:P57   ] , [ sh:path wdt:P58   ] , [ sh:path wdt:P577 ] ,
+    [ sh:path wdt:P179  ] , [ sh:path wdt:P1545 ] , [ sh:path wdt:P4908 ] .
+
+nodi:CharacterShape a sh:NodeShape ;
+  sh:targetClass nodi:Character ;
+  sh:property
+    [ sh:path wdt:P1441 ] , [ sh:path wdt:P175  ] , [ sh:path wdt:P725  ] ,
+    [ sh:path wdt:P4584 ] , [ sh:path wdt:P735  ] , [ sh:path wdt:P734  ] ,
+    [ sh:path wdt:P21   ] , [ sh:path wdt:P106  ] , [ sh:path wdt:P22   ] ,
+    [ sh:path wdt:P25   ] , [ sh:path wdt:P3373 ] , [ sh:path wdt:P26   ] ,
+    [ sh:path wdt:P40   ] .
+
+nodi:FictionalPersonShape a sh:NodeShape ;
+  sh:targetClass nodi:FictionalPerson ;
+  sh:property
+    [ sh:path wdt:P1441 ] , [ sh:path wdt:P735  ] , [ sh:path wdt:P734  ] ,
+    [ sh:path wdt:P21   ] , [ sh:path wdt:P106  ] , [ sh:path wdt:P22   ] ,
+    [ sh:path wdt:P25   ] , [ sh:path wdt:P3373 ] , [ sh:path wdt:P26   ] ,
+    [ sh:path wdt:P40   ] .
+
+nodi:PersonShape a sh:NodeShape ;
+  sh:targetClass nodi:Person ;
+  sh:property
+    [ sh:path wdt:P735  ] , [ sh:path wdt:P734  ] , [ sh:path wdt:P21   ] ,
+    [ sh:path wdt:P106  ] , [ sh:path wdt:P22   ] , [ sh:path wdt:P25   ] ,
+    [ sh:path wdt:P3373 ] , [ sh:path wdt:P26   ] , [ sh:path wdt:P40   ] ,
+    [ sh:path wdt:P569  ] , [ sh:path wdt:P19   ] , [ sh:path nodi:cast_member_of ] .
+
+nodi:OrganisationShape a sh:NodeShape ;
+  sh:targetClass nodi:Organisation ;
+  sh:property
+    [ sh:path wdt:P17  ] , [ sh:path wdt:P571 ] .

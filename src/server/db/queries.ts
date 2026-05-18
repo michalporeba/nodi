@@ -104,6 +104,7 @@ export interface Claim {
 
 export interface ClaimWithDetail extends Claim {
   object_label: string | null
+  object_type: string | null
   source_title: string | null
 }
 
@@ -345,6 +346,11 @@ export function getEntities(filters: { type?: string; q?: string; unreconciled?:
   return (db.prepare(sql).all(...params) as Record<string, unknown>[]).map(mapEntity)
 }
 
+export function getEntityById(id: number): { id: number; type: EntityType } | null {
+  const db = getDb()
+  return db.prepare('SELECT id, type FROM Entity WHERE id = ?').get(id) as { id: number; type: EntityType } | null
+}
+
 export function getEntityDetail(id: number): EntityDetail | null {
   const db = getDb()
   const entityRow = db.prepare(`${ENTITY_AGGREGATE_SQL} WHERE e.id = ?`).get(id) as Record<string, unknown> | null
@@ -356,6 +362,7 @@ export function getEntityDetail(id: number): EntityDetail | null {
   const claimRows = db.prepare(`
     SELECT c.*,
       (SELECT l.value FROM Label l WHERE l.entity_id = c.object_entity_id AND l.is_primary = 1 LIMIT 1) as object_label,
+      (SELECT e.type FROM Entity e WHERE e.id = c.object_entity_id LIMIT 1) as object_type,
       (SELECT s.title FROM Source s WHERE s.id = c.source_id LIMIT 1) as source_title
     FROM Claim c
     WHERE c.subject_entity_id = ?
@@ -365,6 +372,7 @@ export function getEntityDetail(id: number): EntityDetail | null {
   const claims: ClaimWithDetail[] = claimRows.map(r => ({
     ...mapClaim(r),
     object_label: r.object_label as string | null,
+    object_type: r.object_type as string | null,
     source_title: r.source_title as string | null,
   }))
 

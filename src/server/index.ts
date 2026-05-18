@@ -11,10 +11,16 @@ import reconcileRouter from './routes/reconcile'
 import exportRouter from './routes/export'
 import relationshipsRouter from './routes/relationships'
 import propertiesRouter from './routes/properties'
+import ontologyRouter from './routes/ontology'
 
 // Initialize DB on startup
 import { initializeSchema } from './db/client'
 initializeSchema()
+
+// Load ontology eagerly so startup fails fast on bad files.
+import { getOntology, watchOntology } from './ontology/loader'
+getOntology()
+watchOntology()
 
 const app = new Hono()
 
@@ -32,6 +38,7 @@ api.route('/reconcile', reconcileRouter)
 api.route('/export', exportRouter)
 api.route('/relationships', relationshipsRouter)
 api.route('/properties', propertiesRouter)
+api.route('/ontology', ontologyRouter)
 
 app.route('/api', api)
 

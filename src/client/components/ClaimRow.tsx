@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import type { Claim, Entity, EntityType } from '../api/types'
 import { ENTITY_TYPES } from '../api/types'
 import { PropertyPicker } from './PropertyPicker'
+import { useOntology, getPropertyShape } from '../data/ontology'
 
 interface Props {
   claim: Claim
@@ -14,10 +15,28 @@ interface Props {
 
 type EditMode = 'property' | 'value' | null
 
+function useClaimWarnings(claim: Claim): string[] {
+  const ontology = useOntology()
+  const shape = getPropertyShape(ontology, claim.property)
+  if (!shape) return []
+  const warnings: string[] = []
+  if (claim.object_entity_id !== null) {
+    if (shape.value_type === 'text') {
+      warnings.push(`"${claim.property}" expects text, not an entity`)
+    } else if (shape.class_range && claim.object_type && claim.object_type !== shape.class_range) {
+      warnings.push(`"${claim.property}" expects ${shape.class_range}, got ${claim.object_type}`)
+    }
+  } else if (claim.value !== null && shape.value_type === 'entity') {
+    warnings.push(`"${claim.property}" expects an entity, not text`)
+  }
+  return warnings
+}
+
 export function ClaimRow({ claim, subjectType, onChanged, onDeleted, hideProperty }: Props) {
   const [editing, setEditing] = useState<EditMode>(null)
   const isEntity = claim.object_entity_id !== null
   const display = claim.object_label ?? claim.value ?? '(empty)'
+  const warnings = useClaimWarnings(claim)
 
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '3px 0', fontSize: 13, gap: 6 }}>
@@ -50,6 +69,14 @@ export function ClaimRow({ claim, subjectType, onChanged, onDeleted, hidePropert
               title="Click to edit value"
             >
               {display}
+            </span>
+          )}
+          {editing === null && warnings.length > 0 && (
+            <span
+              style={{ fontSize: 10, color: '#f59e0b', background: '#fef3c7', borderRadius: 3, padding: '1px 4px', cursor: 'default' }}
+              title={warnings.join('\n')}
+            >
+              ⚠ {warnings.length === 1 ? warnings[0] : `${warnings.length} warnings`}
             </span>
           )}
           {editing === null && claim.source_title && (
@@ -141,7 +168,11 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
   const [text, setText] = useState(claim.value ?? '')
   const [busy, setBusy] = useState(false)
   const [promoting, setPromoting] = useState(false)
+  const [showAllTypes, setShowAllTypes] = useState(false)
   const [results, setResults] = useState<Entity[]>([])
+  const ontology = useOntology()
+  const shape = getPropertyShape(ontology, claim.property)
+  const defaultType = shape?.default_entity_type as EntityType | null | undefined
 
   useEffect(() => {
     if (!promoting) return
@@ -173,6 +204,11 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
     try {
       const e = await api.entities.create({ type, primary_label: text.trim() })
       await api.claims.update(claim.id, { value: null, object_entity_id: e.id })
+      if (shape?.seed_claims?.length) {
+        await Promise.all(shape.seed_claims.map(sc =>
+          api.claims.create({ subject_entity_id: e.id, property: sc.property, value: sc.value })
+        ))
+      }
       onDone()
     } finally { setBusy(false) }
   }
@@ -218,17 +254,38 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', fontSize: 11 }}>
             <span style={{ color: '#94a3b8' }}>+ new as:</span>
-            {ENTITY_TYPES.map(t => (
-              <button
-                key={t}
-                className="btn btn-secondary btn-sm"
-                style={{ padding: '2px 6px', fontSize: 11 }}
-                onClick={() => promoteToNew(t)}
-                disabled={busy}
-              >
-                {t}
-              </button>
-            ))}
+            {defaultType && !showAllTypes ? (
+              <>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '2px 6px', fontSize: 11 }}
+                  onClick={() => promoteToNew(defaultType)}
+                  disabled={busy}
+                >
+                  {defaultType}
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ padding: '2px 4px', fontSize: 10, color: '#94a3b8' }}
+                  onClick={() => setShowAllTypes(true)}
+                  disabled={busy}
+                >
+                  other…
+                </button>
+              </>
+            ) : (
+              ENTITY_TYPES.map(t => (
+                <button
+                  key={t}
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '2px 6px', fontSize: 11 }}
+                  onClick={() => promoteToNew(t)}
+                  disabled={busy}
+                >
+                  {t}
+                </button>
+              ))
+            )}
           </div>
         </div>
       )}
@@ -247,14 +304,17 @@ function EntityClaimEditor({ claim, objectLabel, onDone, onCancel }: {
   const [replacing, setReplacing] = useState(false)
   const [search, setSearch] = useState(objectLabel)
   const [results, setResults] = useState<Entity[]>([])
+  const ontology = useOntology()
+  const shape = getPropertyShape(ontology, claim.property)
+  const typeFilter = shape?.class_range as EntityType | null | undefined
 
   useEffect(() => {
     if (!replacing) return
     const q = search.trim()
     if (!q) { setResults([]); return }
-    const t = setTimeout(() => api.entities.list({ q }).then(setResults), 200)
+    const t = setTimeout(() => api.entities.list({ q, ...(typeFilter ? { type: typeFilter } : {}) }).then(setResults), 200)
     return () => clearTimeout(t)
-  }, [search, replacing])
+  }, [search, replacing, typeFilter])
 
   async function unlink() {
     setBusy(true)
