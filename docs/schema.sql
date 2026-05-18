@@ -85,7 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_externalid_system_value ON ExternalID(system, val
 
 -- ─── Mentions ───────────────────────────────────────────────────────────────
 
--- One row per (entity, source) pair once confirmed
+-- One row per (entity, source, surface_form) triple once confirmed
 -- Unconfirmed suggestions are ephemeral — computed at render time, not stored
 CREATE TABLE IF NOT EXISTS Mention (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS Mention (
   surface_form  TEXT NOT NULL,                      -- exact string that appeared
   confirmed     INTEGER NOT NULL DEFAULT 0,         -- bool
   confirmed_at  TEXT,                               -- ISO8601 datetime
-  UNIQUE(entity_id, source_id)
+  UNIQUE(entity_id, source_id, surface_form)
 );
 
 CREATE INDEX IF NOT EXISTS idx_mention_source ON Mention(source_id);
