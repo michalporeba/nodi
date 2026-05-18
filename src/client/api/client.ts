@@ -39,7 +39,8 @@ export const api = {
     get: (id: number) => get<Source>(`/sources/${id}`),
     byUrl: (url: string) => get<Source | null>(`/sources/by-url?url=${encodeURIComponent(url)}`),
     fetch: (url: string, origin: SourceOrigin = 'manual') => post<Source>('/sources/fetch', { url, origin }),
-    update: (id: number, data: Partial<Pick<Source, 'status' | 'title' | 'subject_entity_id' | 'subject_confirmed' | 'subject_description'>>) =>
+    createNote: (data: { title?: string; content?: string }) => post<Source>('/sources/notes', data),
+    update: (id: number, data: Partial<Pick<Source, 'status' | 'title' | 'content' | 'subject_entity_id' | 'subject_confirmed' | 'subject_description'>>) =>
       patch<Source>(`/sources/${id}`, data),
     matches: (id: number) => get<Match[]>(`/sources/${id}/matches`),
     links: (id: number) => get<SourceLink[]>(`/sources/${id}/links`),

@@ -260,13 +260,14 @@ export function createSource(data: {
   return getSource(result.lastInsertRowid as number)!
 }
 
-export function updateSource(id: number, data: Partial<Pick<Source, 'status' | 'title' | 'subject_entity_id' | 'subject_confirmed' | 'subject_description'>>): Source | null {
+export function updateSource(id: number, data: Partial<Pick<Source, 'status' | 'title' | 'content' | 'subject_entity_id' | 'subject_confirmed' | 'subject_description'>>): Source | null {
   const db = getDb()
   const sets: string[] = []
   const params: Params = []
 
   if (data.status !== undefined) { sets.push('status = ?'); params.push(data.status) }
   if (data.title !== undefined) { sets.push('title = ?'); params.push(data.title ?? null) }
+  if (data.content !== undefined) { sets.push('content = ?'); params.push(data.content ?? null) }
   if (data.subject_entity_id !== undefined) { sets.push('subject_entity_id = ?'); params.push(data.subject_entity_id) }
   if (data.subject_confirmed !== undefined) { sets.push('subject_confirmed = ?'); params.push(data.subject_confirmed ? 1 : 0) }
   if (data.subject_description !== undefined) { sets.push('subject_description = ?'); params.push(data.subject_description ?? null) }

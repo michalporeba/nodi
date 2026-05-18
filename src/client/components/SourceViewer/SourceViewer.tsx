@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { api } from '../../api/client'
@@ -458,6 +458,48 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
   )
 }
 
+// ─── Note Editor ──────────────────────────────────────────────────────────────
+
+function NoteEditor({ sourceId, initialContent, onSaved }: {
+  sourceId: number
+  initialContent: string
+  onSaved: () => void
+}) {
+  const [text, setText] = useState(initialContent)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value
+    setText(value)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(async () => {
+      await api.sources.update(sourceId, { content: value })
+      onSaved()
+    }, 400)
+  }
+
+  return (
+    <textarea
+      value={text}
+      onChange={handleChange}
+      style={{
+        flex: 1,
+        resize: 'none',
+        border: 'none',
+        outline: 'none',
+        padding: '16px',
+        fontFamily: 'monospace',
+        fontSize: 14,
+        lineHeight: 1.6,
+        background: 'var(--content-bg, #fff)',
+        color: 'inherit',
+        width: '100%',
+      }}
+      placeholder="Write your notes here…"
+    />
+  )
+}
+
 // ─── Main SourceViewer ────────────────────────────────────────────────────────
 
 type PopoverState =
@@ -471,6 +513,8 @@ export function SourceViewer() {
   const sourceId = parseInt(id ?? '0')
 
   const [source, setSource] = useState<Source | null>(null)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [matchesLoading, setMatchesLoading] = useState(true)
@@ -543,9 +587,43 @@ export function SourceViewer() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--content-border)' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--content-border)', background: 'var(--panel-bg)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <button className="btn btn-ghost btn-sm" onClick={() => navigate('/queue')}>← Queue</button>
-          <span style={{ fontSize: 13, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {source.title ?? source.url ?? 'Source'}
-          </span>
+          {source.type === 'note' ? (
+            editingTitle ? (
+              <input
+                className="input"
+                autoFocus
+                value={titleDraft}
+                onChange={e => setTitleDraft(e.target.value)}
+                onBlur={async () => {
+                  setEditingTitle(false)
+                  const updated = await api.sources.update(sourceId, { title: titleDraft || null })
+                  if (updated) setSource(updated)
+                }}
+                onKeyDown={async e => {
+                  if (e.key === 'Enter') {
+                    setEditingTitle(false)
+                    const updated = await api.sources.update(sourceId, { title: titleDraft || null })
+                    if (updated) setSource(updated)
+                  } else if (e.key === 'Escape') {
+                    setEditingTitle(false)
+                  }
+                }}
+                style={{ fontSize: 13, fontWeight: 500, flex: 1 }}
+              />
+            ) : (
+              <span
+                style={{ fontSize: 13, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text', color: source.title ? 'inherit' : '#94a3b8' }}
+                onClick={() => { setTitleDraft(source.title ?? ''); setEditingTitle(true) }}
+                title="Click to edit title"
+              >
+                {source.title ?? 'Untitled note'}
+              </span>
+            )
+          ) : (
+            <span style={{ fontSize: 13, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {source.title ?? source.url ?? 'Source'}
+            </span>
+          )}
           {matchesLoading ? (
             <span style={{ fontSize: 11, color: '#94a3b8' }}>Loading matches…</span>
           ) : (
@@ -557,7 +635,16 @@ export function SourceViewer() {
           )}
         </div>
 
-        {source.content ? (
+        {source.type === 'note' ? (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <NoteEditor
+              key={sourceId}
+              sourceId={sourceId}
+              initialContent={source.content ?? ''}
+              onSaved={reloadMatches}
+            />
+          </div>
+        ) : source.content ? (
           <SourceContent
             html={source.content}
             matches={matches}

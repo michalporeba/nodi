@@ -62,7 +62,7 @@ function SourceCard({ source, onStatusChange }: {
 }) {
   const navigate = useNavigate()
   const [updating, setUpdating] = useState(false)
-  const canOpen = source.type === 'url' && !!source.fetched_at
+  const canOpen = source.type === 'note' || (source.type === 'url' && !!source.fetched_at)
 
   async function markIrrelevant(e: React.MouseEvent) {
     e.stopPropagation()
@@ -84,7 +84,10 @@ function SourceCard({ source, onStatusChange }: {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <span className={`badge badge-${source.status}`}>{STATUS_LABELS[source.status]}</span>
-            {domain && <span style={{ fontSize: 11, color: '#94a3b8' }}>{domain}</span>}
+            {source.type === 'note'
+              ? <span style={{ fontSize: 11, color: '#94a3b8' }}>note</span>
+              : domain && <span style={{ fontSize: 11, color: '#94a3b8' }}>{domain}</span>
+            }
           </div>
           <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {source.title ?? source.url ?? '(untitled note)'}
@@ -195,6 +198,7 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
 // ─── Main view ────────────────────────────────────────────────────────────────
 
 export function QueueView() {
+  const navigate = useNavigate()
   const [sources, setSources] = useState<Source[]>([])
   const [candidates, setCandidates] = useState<CandidateLink[]>([])
   const [rejected, setRejected] = useState<Source[]>([])
@@ -237,6 +241,11 @@ export function QueueView() {
     setRejected(prev => [...prev, source])
   }
 
+  async function addNote() {
+    const source = await api.sources.createNote({})
+    navigate(`/sources/${source.id}`)
+  }
+
   async function restoreRejected(source: Source) {
     const updated = await api.sources.update(source.id, { status: 'queued' })
     setRejected(prev => prev.filter(r => r.id !== source.id))
@@ -249,8 +258,9 @@ export function QueueView() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="page-header">
         <h1>Source Queue</h1>
-        <div className="page-header-actions" style={{ flex: 1 }}>
+        <div className="page-header-actions" style={{ flex: 1, display: 'flex', gap: 8 }}>
           <AddUrlBar onAdded={handleAdded} />
+          <button className="btn btn-secondary" onClick={addNote}>+ Add Note</button>
         </div>
       </div>
 
