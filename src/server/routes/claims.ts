@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { createClaim, deleteClaim, updateClaim, getEntityById } from '../db/queries'
 import { getOntology } from '../ontology/loader'
+import { validate, ValidationError } from '../validation'
 
 const router = new Hono()
 
@@ -25,7 +26,7 @@ function claimWarnings(property: string, objectEntityId: number | null | undefin
 }
 
 router.post('/', async c => {
-  const body = await c.req.json() as {
+  let body: {
     subject_entity_id?: number | null
     subject_label?: string | null
     property: string
@@ -34,11 +35,22 @@ router.post('/', async c => {
     mention_id?: number
     source_id?: number
   }
+  try {
+    body = validate(await c.req.json(), {
+      subject_entity_id: { type: 'number', nullable: true },
+      subject_label: { type: 'string', nullable: true },
+      property: { type: 'string', required: true },
+      value: { type: 'string' },
+      object_entity_id: { type: 'number' },
+      mention_id: { type: 'number' },
+      source_id: { type: 'number' },
+    })
+  } catch (err) {
+    if (err instanceof ValidationError) return c.json({ error: err.message, fields: err.fields }, 400)
+    throw err
+  }
   if (!body.subject_entity_id && !body.subject_label) {
     return c.json({ error: 'Either subject_entity_id or subject_label is required' }, 400)
-  }
-  if (!body.property) {
-    return c.json({ error: 'property is required' }, 400)
   }
   if (!body.value && !body.object_entity_id) {
     return c.json({ error: 'Either value or object_entity_id is required' }, 400)
@@ -51,13 +63,26 @@ router.post('/', async c => {
 
 router.patch('/:id', async c => {
   const id = parseInt(c.req.param('id'))
-  const body = await c.req.json() as {
+  let body: {
     value?: string | null
     object_entity_id?: number | null
     property?: string
     subject_entity_id?: number | null
     subject_label?: string | null
     notable?: boolean
+  }
+  try {
+    body = validate(await c.req.json(), {
+      value: { type: 'string', nullable: true },
+      object_entity_id: { type: 'number', nullable: true },
+      property: { type: 'string' },
+      subject_entity_id: { type: 'number', nullable: true },
+      subject_label: { type: 'string', nullable: true },
+      notable: { type: 'boolean' },
+    })
+  } catch (err) {
+    if (err instanceof ValidationError) return c.json({ error: err.message, fields: err.fields }, 400)
+    throw err
   }
   const updated = updateClaim(id, body)
   if (!updated) return c.json({ error: 'Not found' }, 404)
