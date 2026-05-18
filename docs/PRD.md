@@ -271,19 +271,28 @@ used to find and display them.
 
 Requirements:
 
-- Entity types are defined by the active domain ontology, not hardcoded by the
-  product.
-- Different domains may define different entity types, and multiple active
-  domains may partially overlap.
-- Users should be able to provide their own domain ontology with its own entity
-  types, properties, role concepts, external identifiers, and export mappings.
+- Entity types are defined by the active domain ontologies, not hardcoded by
+  the product.
+- Different domains may define different entity types, and the active set of
+  domain ontologies may partially overlap. Overlap is acceptable; matching,
+  pickers, and suggestions operate on the union.
+- Users should be able to provide their own domain ontologies with their own
+  entity types, properties, role concepts, external identifiers, and export
+  mappings.
 - Examples of entity types include people, characters, films, tunes, caves,
   organisations, locations, events, publications, and other domain-specific
   concepts.
-- Role-like selections such as `actor` are ontology-defined concepts, not fixed
-  product primitives. They may be represented as an entity type, a property
-  constraint, a seeded claim such as `occupation = actor`, or another
-  ontology-defined pattern.
+- Entity creation runs through ontology-defined **class templates**. A class
+  template is a recipe applied when a new entity is created from selected text
+  or when an existing label is promoted to an entity. At minimum it sets the
+  surface form as the entity's primary label and assigns its type.
+- All ontology classes are templates. A plain class such as `Person` is a
+  degenerate template whose only effect is to set the label and type. Richer
+  templates seed additional claims; for example, an `Actor` template may
+  produce a `Person` entity with an `occupation = Actor` claim.
+- Role-like selections such as `actor` are class templates, not fixed product
+  primitives. The same mechanism handles plain classes, role-flavored classes,
+  and any future composite recipes.
 - The ontology determines which properties are available for each entity type
   and what value kind or entity range those properties expect.
 - Each entity has one or more labels.
@@ -331,8 +340,8 @@ mentions or claims by itself.
 Requirements:
 
 - Matching runs on demand when a source is reviewed.
-- The matcher compares source text against labels from the active
-  ontology-backed entity graph.
+- The matcher compares source text against labels from the entity graph defined
+  by the active set of domain ontologies.
 - A match represents a label found in source text.
 - A match is not durable data and is not a mention until the user confirms or
   links it.
@@ -423,25 +432,39 @@ labels to external systems. They are not a prerequisite for capturing claims.
 A domain ontology may define:
 
 - entity types and role concepts
+- class templates (see below), including degenerate templates for plain classes
 - property labels and property identifiers
 - which properties are commonly used with which entity types
 - expected value kinds and entity ranges
 - default values, seed claims, and promotion rules
-- composite UI choices, such as `actor` meaning a `Person` entity with an
-  `occupation = actor` claim
 - external identifier systems
 - export mappings, including mappings to RDF predicates or Wikidata PIDs
+
+A class template is a recipe that runs at entity creation and at
+label-to-entity promotion. At minimum it sets the new entity's primary label
+from the surface form and assigns its type. A richer template may seed
+additional claims, such as `occupation = Actor` for an `Actor` template, and
+may reference other entities the template requires.
 
 Requirements:
 
 - The product must support multiple loaded domain ontologies, including
   user-provided ontologies.
+- At any time the user has an active set of one or more domain ontologies.
+  Matching, suggestions, pickers, validation, reconciliation hints, and export
+  operate on the union of the active set.
+- Overlap between active ontologies is acceptable. When ontologies declare
+  conflicting expectations for the same class or property, the UI should
+  surface the options, prefer the more specific where reasonable, and must not
+  block capture.
 - The initial domain ontologies should cover Welsh film and television, Welsh
   traditional music, and caves and caving in Wales.
 - The default Welsh film and television ontology currently lives at
   `data/ontology/welsh-film-tv.ttl`.
-- The current `NODI_ONTOLOGY` mechanism may point to one ontology file, but the
-  product direction is a domain set, not a single hardcoded ontology.
+- The current `NODI_ONTOLOGY` mechanism points to a single ontology file. The
+  product direction is in-app selection of the active set, with
+  `NODI_ONTOLOGY` either accepting a list or being superseded by an in-app
+  domain selector.
 - Ontologies can evolve over time. Updating an ontology should improve future
   suggestions, defaults, validation, promotion paths, reconciliation hints, and
   export mappings without invalidating already captured graph data.
@@ -450,6 +473,15 @@ Requirements:
 - Entity type pickers, role choices, property pickers, value editors,
   reconciliation hints, validation messages, and export mappings should use
   ontology guidance where available.
+- Class templates apply both when a new entity is created from selected text
+  and when an existing label is promoted to an entity, so the creation and
+  promotion paths stay uniform.
+- A template may reference other entities (for example, an `Actor` template
+  referencing the `Actor` occupation entity). The ontology should declare
+  those reference entities, or the system should create them on first use.
+- With multiple active ontologies, the template picker shows the union.
+  Template provenance — which ontology defined a template — should be visible
+  so the user can disambiguate name collisions.
 - Ontology-defined properties should be recommended when they match the current
   subject, predicate text, selected surface form, source context, or active
   domain.
@@ -624,6 +656,12 @@ explains why they are changing.
   reconciliation, and export, but must not block capture unless explicitly
   changed by a future PRD.
 - The product must support multiple domains and user-provided ontologies.
+- The user selects an active set of one or more domain ontologies. Matching,
+  suggestions, pickers, validation, reconciliation hints, and export operate on
+  the union of that set; overlap between ontologies is acceptable.
+- Entity creation and label-to-entity promotion run through ontology-defined
+  class templates. A template at minimum sets the primary label and type;
+  richer templates seed additional claims.
 - A claim may begin as labels and later be promoted into entities, ontology
   properties, external identifiers, and export mappings.
 - The source reference plus selected text value, surface form, label, or entity
