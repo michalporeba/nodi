@@ -36,8 +36,6 @@ export interface Entity {
   primary_label: string
   mention_count: number
   claim_count: number
-  wikidata_qid: string | null
-  wikidata_confirmed: boolean
   created_at: string
 }
 

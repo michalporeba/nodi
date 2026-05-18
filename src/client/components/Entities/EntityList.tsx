@@ -144,12 +144,6 @@ export function EntityList() {
                   <div style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 10 }}>
                     <span>{entity.mention_count} mention{entity.mention_count !== 1 ? 's' : ''}</span>
                     <span>{entity.claim_count} claim{entity.claim_count !== 1 ? 's' : ''}</span>
-                    {entity.wikidata_qid && (
-                      <span style={{ color: '#22c55e' }}>Wikidata ✓ {entity.wikidata_qid}</span>
-                    )}
-                    {!entity.wikidata_qid && (
-                      <span style={{ color: '#f59e0b' }}>not reconciled</span>
-                    )}
                   </div>
                 </div>
                 <span style={{ color: '#94a3b8', fontSize: 18 }}>›</span>

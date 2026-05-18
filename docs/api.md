@@ -148,8 +148,6 @@ Response:
     "primary_label": "Richard Harrington",
     "mention_count": 4,
     "claim_count": 8,
-    "wikidata_qid": "Q7326008",
-    "wikidata_confirmed": true,
     "created_at": "2026-05-16T10:00:00Z"
   }
 ]

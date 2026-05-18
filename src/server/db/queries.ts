@@ -39,8 +39,6 @@ export interface Entity {
   primary_label: string
   mention_count: number
   claim_count: number
-  wikidata_qid: string | null
-  wikidata_confirmed: boolean
   created_at: string
 }
 
@@ -151,8 +149,6 @@ function mapEntity(row: Record<string, unknown>): Entity {
     primary_label: (row.primary_label as string) ?? '(no label)',
     mention_count: (row.mention_count as number) ?? 0,
     claim_count: (row.claim_count as number) ?? 0,
-    wikidata_qid: row.wikidata_qid as string | null,
-    wikidata_confirmed: Boolean(row.wikidata_confirmed),
     created_at: row.created_at as string,
   }
 }
@@ -210,9 +206,7 @@ const ENTITY_AGGREGATE_SQL = `
     e.id, e.type, e.created_at,
     COALESCE((SELECT l2.value FROM Label l2 WHERE l2.entity_id = e.id AND l2.is_primary = 1 LIMIT 1), '(no label)') as primary_label,
     (SELECT COUNT(*) FROM Mention m WHERE m.entity_id = e.id) as mention_count,
-    (SELECT COUNT(*) FROM Claim c WHERE c.subject_entity_id = e.id) as claim_count,
-    (SELECT eid2.value FROM ExternalID eid2 WHERE eid2.entity_id = e.id AND eid2.system = 'wikidata' AND eid2.confirmed = 1 LIMIT 1) as wikidata_qid,
-    (SELECT eid3.confirmed FROM ExternalID eid3 WHERE eid3.entity_id = e.id AND eid3.system = 'wikidata' AND eid3.confirmed = 1 LIMIT 1) as wikidata_confirmed
+    (SELECT COUNT(*) FROM Claim c WHERE c.subject_entity_id = e.id) as claim_count
   FROM Entity e
 `
 

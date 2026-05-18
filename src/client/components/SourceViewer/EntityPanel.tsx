@@ -98,7 +98,6 @@ function TopicPicker({ source, suggestedText, onSet, onCancel }: TopicPickerProp
                 <div className="entity-option-label">{e.primary_label}</div>
                 <div className="entity-option-meta">
                   {e.type} · {e.mention_count} mentions
-                  {e.wikidata_qid && <> · {e.wikidata_qid}</>}
                 </div>
               </div>
             </div>
@@ -208,7 +207,9 @@ export function TopicSection({ source, onUpdate }: TopicSectionProps) {
               <div style={{ fontWeight: 600, fontSize: 14 }}>{entity.primary_label}</div>
               <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
                 <span className={`badge badge-${entity.type}`}>{entity.type}</span>
-                {entity.wikidata_qid && <span style={{ marginLeft: 6 }}>{entity.wikidata_qid}</span>}
+                {entity.external_ids?.find(x => x.system === 'wikidata' && x.confirmed)?.value && (
+                  <span style={{ marginLeft: 6 }}>{entity.external_ids.find(x => x.system === 'wikidata' && x.confirmed)!.value}</span>
+                )}
               </div>
             </>
           ) : loadingEntity ? (
