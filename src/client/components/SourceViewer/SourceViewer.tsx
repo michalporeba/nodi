@@ -245,11 +245,12 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
   const hasActive = activeEntityId !== null
   const hasProperty = property.trim().length > 0
   const hasEntities = linked.length > 0
-  const canSaveClaim = hasActive && hasProperty
+  const canSaveClaim = hasProperty && (hasActive || value.trim().length > 0)
   const canSave = canSaveClaim || hasEntities
 
   let actionLabel = 'Save'
   if (canSaveClaim && hasEntities) actionLabel = `Save claim · ${linked.length} ${linked.length === 1 ? 'entity' : 'entities'}`
+  else if (canSaveClaim && !hasActive) actionLabel = 'Save label-first claim'
   else if (canSaveClaim) actionLabel = 'Save claim'
   else if (hasEntities) actionLabel = linked.length === 1 ? 'Save entity' : `Save ${linked.length} entities`
 
@@ -279,24 +280,35 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
       await api.mentions.create({ entity_id: ent.id, source_id: sourceId, surface_form: text })
     }
 
-    // Claims about the active topic
+    // Claims about the active topic (or label-first when no active topic)
     if (canSaveClaim) {
-      if (resolved.length === 0) {
-        await api.claims.create({
-          subject_entity_id: activeEntityId!,
-          property: property.trim(),
-          value: value.trim(),
-          source_id: sourceId,
-        })
-      } else {
-        for (const ent of resolved) {
+      if (hasActive) {
+        if (resolved.length === 0) {
           await api.claims.create({
             subject_entity_id: activeEntityId!,
             property: property.trim(),
-            object_entity_id: ent.id,
+            value: value.trim(),
             source_id: sourceId,
           })
+        } else {
+          for (const ent of resolved) {
+            await api.claims.create({
+              subject_entity_id: activeEntityId!,
+              property: property.trim(),
+              object_entity_id: ent.id,
+              source_id: sourceId,
+            })
+          }
         }
+      } else {
+        // No active entity — save as a label-first claim using the selected text as subject
+        await api.claims.create({
+          subject_label: text,
+          property: property.trim(),
+          value: value.trim() || undefined,
+          object_entity_id: resolved[0]?.id,
+          source_id: sourceId,
+        })
       }
     }
 
@@ -308,7 +320,7 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
       <div className="popover-header">
         {hasActive
           ? <>About <strong>{activeEntity?.primary_label ?? '…'}</strong></>
-          : <>"{text}"</>}
+          : <>"{text}" (no active topic — saves as label-first claim)</>}
       </div>
       <div className="popover-body" style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 340 }}>
         {linkedUrl && (

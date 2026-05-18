@@ -34,13 +34,37 @@ function useClaimWarnings(claim: Claim): string[] {
 
 export function ClaimRow({ claim, subjectType, onChanged, onDeleted, hideProperty }: Props) {
   const [editing, setEditing] = useState<EditMode>(null)
+  const [promotingSubject, setPromotingSubject] = useState(false)
   const isEntity = claim.object_entity_id !== null
+  const isLabelFirst = claim.subject_entity_id === null && claim.subject_label !== null
   const display = claim.object_label ?? claim.value ?? '(empty)'
   const warnings = useClaimWarnings(claim)
 
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '3px 0', fontSize: 13, gap: 6 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
+        {isLabelFirst && (
+          <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span>subject: <em>{claim.subject_label}</em></span>
+            {!promotingSubject && (
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ padding: '0 4px', fontSize: 10 }}
+                onClick={() => setPromotingSubject(true)}
+                title="Promote subject label to entity"
+              >
+                → promote
+              </button>
+            )}
+            {promotingSubject && (
+              <SubjectPromoter
+                claim={claim}
+                onDone={() => { setPromotingSubject(false); onChanged() }}
+                onCancel={() => setPromotingSubject(false)}
+              />
+            )}
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
           {!hideProperty && editing !== 'property' && (
             <span
@@ -381,6 +405,57 @@ function EntityClaimEditor({ claim, objectLabel, onDone, onCancel }: {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function SubjectPromoter({ claim, onDone, onCancel }: { claim: Claim; onDone: () => void; onCancel: () => void }) {
+  const [search, setSearch] = useState(claim.subject_label ?? '')
+  const [results, setResults] = useState<Entity[]>([])
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const q = search.trim()
+    if (!q) { setResults([]); return }
+    const t = setTimeout(() => api.entities.list({ q }).then(setResults), 200)
+    return () => clearTimeout(t)
+  }, [search])
+
+  async function promote(e: Entity) {
+    setBusy(true)
+    try {
+      await api.claims.update(claim.id, { subject_entity_id: e.id, subject_label: null })
+      onDone()
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4, paddingLeft: 8, borderLeft: '2px solid var(--content-border)', fontSize: 11 }}>
+      <input
+        className="input"
+        style={{ fontSize: 11, padding: '2px 5px' }}
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="search entity…"
+        disabled={busy}
+        autoFocus
+      />
+      {results.length > 0 && (
+        <div style={{ maxHeight: 100, overflowY: 'auto', border: '1px solid var(--content-border)', borderRadius: 4 }}>
+          {results.slice(0, 5).map(e => (
+            <div
+              key={e.id}
+              className="entity-option"
+              onClick={() => !busy && promote(e)}
+              style={{ cursor: busy ? 'wait' : 'pointer', fontSize: 11 }}
+            >
+              <div className="entity-option-label">{e.primary_label}</div>
+              <div className="entity-option-meta">{e.type}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start', padding: '1px 4px', fontSize: 10 }} onClick={onCancel}>cancel</button>
     </div>
   )
 }
