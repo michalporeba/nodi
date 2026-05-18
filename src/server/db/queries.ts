@@ -91,7 +91,8 @@ export interface MentionWithSource extends Mention {
 
 export interface Claim {
   id: number
-  subject_entity_id: number
+  subject_entity_id: number | null
+  subject_label: string | null
   property: string
   value: string | null
   object_entity_id: number | null
@@ -189,7 +190,8 @@ function mapMention(row: Record<string, unknown>): Mention {
 function mapClaim(row: Record<string, unknown>): Claim {
   return {
     id: row.id as number,
-    subject_entity_id: row.subject_entity_id as number,
+    subject_entity_id: row.subject_entity_id as number | null,
+    subject_label: row.subject_label as string | null,
     property: row.property as string,
     value: row.value as string | null,
     object_entity_id: row.object_entity_id as number | null,
@@ -533,7 +535,8 @@ export function deleteMention(id: number): void {
 // ─── Claims ───────────────────────────────────────────────────────────────────
 
 export function createClaim(data: {
-  subject_entity_id: number
+  subject_entity_id?: number | null
+  subject_label?: string | null
   property: string
   value?: string
   object_entity_id?: number
@@ -542,10 +545,10 @@ export function createClaim(data: {
 }): Claim {
   const db = getDb()
   const result = db.prepare(`
-    INSERT INTO Claim (subject_entity_id, property, value, object_entity_id, mention_id, source_id)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO Claim (subject_entity_id, subject_label, property, value, object_entity_id, mention_id, source_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
-    data.subject_entity_id, data.property,
+    data.subject_entity_id ?? null, data.subject_label ?? null, data.property,
     data.value ?? null, data.object_entity_id ?? null,
     data.mention_id ?? null, data.source_id ?? null
   )
@@ -558,13 +561,23 @@ export function deleteClaim(id: number): void {
   db.prepare('DELETE FROM Claim WHERE id = ?').run(id)
 }
 
-export function updateClaim(id: number, data: { value?: string | null; object_entity_id?: number | null; property?: string }): Claim | null {
+export function updateClaim(id: number, data: {
+  value?: string | null
+  object_entity_id?: number | null
+  property?: string
+  subject_entity_id?: number | null
+  subject_label?: string | null
+  notable?: boolean
+}): Claim | null {
   const db = getDb()
   const sets: string[] = []
   const params: unknown[] = []
   if (data.value !== undefined)            { sets.push('value = ?');            params.push(data.value) }
   if (data.object_entity_id !== undefined) { sets.push('object_entity_id = ?'); params.push(data.object_entity_id) }
   if (data.property !== undefined)         { sets.push('property = ?');         params.push(data.property) }
+  if (data.subject_entity_id !== undefined) { sets.push('subject_entity_id = ?'); params.push(data.subject_entity_id) }
+  if (data.subject_label !== undefined)    { sets.push('subject_label = ?');    params.push(data.subject_label) }
+  if (data.notable !== undefined)          { sets.push('notable = ?');          params.push(data.notable ? 1 : 0) }
   if (sets.length === 0) {
     const row = db.prepare('SELECT * FROM Claim WHERE id = ?').get(id) as Record<string, unknown> | null
     return row ? mapClaim(row) : null

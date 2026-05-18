@@ -74,7 +74,8 @@ export interface MentionWithSource extends Mention {
 
 export interface Claim {
   id: number
-  subject_entity_id: number
+  subject_entity_id: number | null
+  subject_label: string | null
   property: string
   value: string | null
   object_entity_id: number | null

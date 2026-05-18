@@ -108,13 +108,15 @@ CREATE INDEX IF NOT EXISTS idx_mention_entity ON Mention(entity_id);
 -- exactly one of value or object_entity_id should be set, but not enforced at db level
 CREATE TABLE IF NOT EXISTS Claim (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-  subject_entity_id   INTEGER NOT NULL REFERENCES Entity(id) ON DELETE CASCADE,
+  subject_entity_id   INTEGER REFERENCES Entity(id) ON DELETE CASCADE,
+  subject_label       TEXT,
   property            TEXT NOT NULL,
   value               TEXT,
   object_entity_id    INTEGER REFERENCES Entity(id),
   mention_id          INTEGER REFERENCES Mention(id),
   source_id           INTEGER REFERENCES Source(id),
-  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (subject_entity_id IS NOT NULL OR subject_label IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_claim_subject ON Claim(subject_entity_id);

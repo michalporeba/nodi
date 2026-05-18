@@ -21,6 +21,34 @@ export function getDb(): Database {
   // Additive migrations for existing databases
   try { _db.exec("ALTER TABLE Source ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'") } catch { /* already exists */ }
 
+  // Migrate Claim: make subject_entity_id nullable, add subject_label, add CHECK
+  const claimCols = (_db.prepare("PRAGMA table_info(Claim)").all() as Array<{ name: string }>).map(c => c.name)
+  if (!claimCols.includes('subject_label')) {
+    _db.exec(`
+      PRAGMA foreign_keys=OFF;
+      CREATE TABLE Claim_new (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_entity_id   INTEGER REFERENCES Entity(id) ON DELETE CASCADE,
+        subject_label       TEXT,
+        property            TEXT NOT NULL,
+        value               TEXT,
+        object_entity_id    INTEGER REFERENCES Entity(id),
+        mention_id          INTEGER REFERENCES Mention(id),
+        source_id           INTEGER REFERENCES Source(id),
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (subject_entity_id IS NOT NULL OR subject_label IS NOT NULL)
+      );
+      INSERT INTO Claim_new (id, subject_entity_id, property, value, object_entity_id, mention_id, source_id, created_at)
+        SELECT id, subject_entity_id, property, value, object_entity_id, mention_id, source_id, created_at FROM Claim;
+      DROP TABLE Claim;
+      ALTER TABLE Claim_new RENAME TO Claim;
+      CREATE INDEX IF NOT EXISTS idx_claim_subject ON Claim(subject_entity_id);
+      CREATE INDEX IF NOT EXISTS idx_claim_property ON Claim(property);
+      CREATE INDEX IF NOT EXISTS idx_claim_object ON Claim(object_entity_id);
+      PRAGMA foreign_keys=ON;
+    `)
+  }
+
   // Migrate Mention uniqueness from (entity_id, source_id) to (entity_id, source_id, surface_form)
   const mentionIndices = _db.prepare("PRAGMA index_list(Mention)").all() as Array<{ name: string; unique: number }>
   const hasThreeColUniq = mentionIndices.some(idx => {
