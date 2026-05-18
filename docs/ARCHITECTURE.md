@@ -35,7 +35,7 @@ An `Entity` represents a real or fictional thing: a person, film, character, org
 
 When two entities share a label (e.g. two different people named "David Lyn"), both are candidates for any occurrence of that string. The user must resolve the ambiguity per source.
 
-### Sources and subjects
+### Sources and page topics
 
 A `Source` is a fetched web page or a written note. Every source has a `status`:
 
@@ -44,11 +44,11 @@ A `Source` is a fetched web page or a written note. Every source has a `status`:
 - `done` — annotation complete
 - `irrelevant` — marked as not useful, will not be re-queued
 
-A source optionally has a **subject**: either a single entity (`subject_entity_id`) or a free-text description (`subject_description`) for pages covering multiple topics. A subject-entity source (e.g. a Wikipedia biography) is considered a primary source for that entity. A subject-description source is a reference. Both nullable — a queued page has no declared subject yet.
+A source optionally has a **page topic**: either a single entity (`subject_entity_id`) or a free-text description (`subject_description`) for pages covering multiple topics. A page-topic source (e.g. a Wikipedia biography) is considered a primary source for that entity. A subject-description source is a reference. Both nullable — a queued page has no declared page topic yet. (The column is named `subject_entity_id` for historical reasons; the conceptual term is *page topic*.)
 
-**One topic per source.** A source either has a single entity-typed topic or it does not. If a page is about more than one entity it is treated as a reference document — the user supplies a free-text description and no `subject_entity_id` is set. The whole claim-attachment model depends on this: every claim is attributed to a single subject entity, and that subject is normally the page topic.
+**One topic per source.** A source either has a single entity-typed page topic or it does not. If a page is about more than one entity it is treated as a reference document — the user supplies a free-text description and no `subject_entity_id` is set. The whole claim-attachment model depends on this: every claim is attributed to a single subject entity, and that subject is normally the page topic.
 
-A source stores the full fetched HTML in `content`. This snapshot is what the annotation layer works against, ensuring annotations remain valid even if the live page changes.
+A source stores the full fetched HTML in `content`. This cached representation is for inspection and rendering; durable annotations (Mentions and Claims) do not depend on it. If the live page changes, reopening the source produces fresh matches from the current label database without invalidating existing annotations.
 
 ### Page topic vs. active topic
 
