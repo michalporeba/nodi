@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
 import type { Claim, Entity, EntityType } from '../api/types'
-import { ENTITY_TYPES } from '../api/types'
+import type { SeedClaim } from '../data/ontology'
 import { PropertyPicker } from './PropertyPicker'
 import { useOntology, getPropertyShape } from '../data/ontology'
 
@@ -200,14 +200,15 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
     } finally { setBusy(false) }
   }
 
-  async function promoteToNew(type: EntityType) {
+  async function promoteToNew(targetClass: string, templateSeeds: SeedClaim[] = []) {
     setBusy(true)
     try {
-      const e = await api.entities.create({ type, primary_label: text.trim() })
+      const e = await api.entities.create({ type: targetClass, primary_label: text.trim() })
       await api.claims.update(claim.id, { value: null, object_entity_id: e.id })
-      if (shape?.seed_claims?.length) {
+      const seeds = templateSeeds.length ? templateSeeds : (shape?.seed_claims ?? [])
+      if (seeds.length) {
         const sourceId = claim.source_id ?? undefined
-        await Promise.all(shape.seed_claims.map(sc =>
+        await Promise.all(seeds.map(sc =>
           api.claims.create({ subject_entity_id: e.id, property: sc.property, value: sc.value, source_id: sourceId })
         ))
       }
@@ -276,15 +277,16 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
                 </button>
               </>
             ) : (
-              ENTITY_TYPES.map(t => (
+              (ontology?.templates ?? []).map(t => (
                 <button
-                  key={t}
+                  key={t.name}
                   className="btn btn-secondary btn-sm"
                   style={{ padding: '2px 6px', fontSize: 11 }}
-                  onClick={() => promoteToNew(t)}
+                  title={t.source}
+                  onClick={() => promoteToNew(t.target_class, t.seed_claims)}
                   disabled={busy}
                 >
-                  {t}
+                  {t.name}
                 </button>
               ))
             )}

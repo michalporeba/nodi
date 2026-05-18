@@ -3,11 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { api } from '../../api/client'
 import type { Source, Match, Entity, EntityType } from '../../api/types'
-import { ENTITY_TYPES } from '../../api/types'
 import { SourceContent } from './SourceContent'
 import { TopicSection, ActiveTopicSection, ActionsSection, RelationshipConnector } from './EntityPanel'
 import { PropertyPicker } from '../PropertyPicker'
-import { useOntology, getPropertyShape } from '../../data/ontology'
+import { useOntology, getPropertyShape, type SeedClaim } from '../../data/ontology'
 
 // ─── Popovers ─────────────────────────────────────────────────────────────────
 
@@ -169,7 +168,7 @@ function AmbiguousPopover({ match, pos, sourceId, onConfirmed, onDismiss }: {
 
 type LinkedEntity =
   | { kind: 'existing'; entity: Entity }
-  | { kind: 'new'; type: EntityType }
+  | { kind: 'new'; type: string; seed_claims: SeedClaim[] }
 
 function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreated, onDismiss }: {
   text: string
@@ -234,9 +233,9 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
     setLinked(p => [...p, { kind: 'existing', entity: e }])
   }
 
-  function addNew(type: EntityType) {
+  function addNew(type: string, seed_claims: SeedClaim[] = []) {
     if (linked.some(l => l.kind === 'new' && l.type === type)) return
-    setLinked(p => [...p, { kind: 'new', type }])
+    setLinked(p => [...p, { kind: 'new', type, seed_claims }])
   }
 
   function removeLinked(idx: number) {
@@ -266,8 +265,9 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
       } else {
         const newEntity = await api.entities.create({ type: item.type, primary_label: value.trim() })
         resolved.push(newEntity)
-        if (propShape?.seed_claims?.length) {
-          await Promise.all(propShape.seed_claims.map(sc =>
+        const seeds = item.seed_claims.length ? item.seed_claims : (propShape?.seed_claims ?? [])
+        if (seeds.length) {
+          await Promise.all(seeds.map(sc =>
             api.claims.create({ subject_entity_id: newEntity.id, property: sc.property, value: sc.value, source_id: sourceId })
           ))
         }
@@ -429,17 +429,18 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
                   </button>
                 </>
               ) : (
-                ENTITY_TYPES.map(t => {
-                  const already = linked.some(l => l.kind === 'new' && l.type === t)
+                (ontology?.templates ?? []).map(t => {
+                  const already = linked.some(l => l.kind === 'new' && l.type === t.target_class && l.seed_claims === t.seed_claims)
                   return (
                     <button
-                      key={t}
+                      key={t.name}
                       className="btn btn-secondary btn-sm"
                       style={{ padding: '2px 8px', fontSize: 11, opacity: already ? 0.4 : 1 }}
-                      onClick={() => addNew(t)}
+                      title={t.source}
+                      onClick={() => addNew(t.target_class, t.seed_claims)}
                       disabled={already}
                     >
-                      {t}
+                      {t.name}
                     </button>
                   )
                 })

@@ -4,7 +4,7 @@ import { api } from '../../api/client'
 import type { Source, Entity, EntityDetail, EntityType, WikidataCandidate, RelationshipResult, RelHop, EntitySearchLogEntry } from '../../api/types'
 import { PropertyPicker } from '../PropertyPicker'
 import { ClaimRow } from '../ClaimRow'
-import { ENTITY_TYPES } from '../../api/types'
+import { useOntology, type SeedClaim } from '../../data/ontology'
 
 // ─── Topic picker (used when no topic is set, or when changing) ───────────────
 
@@ -19,9 +19,10 @@ function TopicPicker({ source, suggestedText, onSet, onCancel }: TopicPickerProp
   const [search, setSearch] = useState(suggestedText ?? source.title ?? '')
   const [results, setResults] = useState<Entity[]>([])
   const [loading, setLoading] = useState(false)
-  const [creating, setCreating] = useState<EntityType | null>(null)
+  const [creating, setCreating] = useState<string | null>(null)
   const [description, setDescription] = useState(source.subject_description ?? '')
   const [busy, setBusy] = useState(false)
+  const ontology = useOntology()
 
   useEffect(() => {
     if (!search.trim()) { setResults([]); return }
@@ -42,11 +43,16 @@ function TopicPicker({ source, suggestedText, onSet, onCancel }: TopicPickerProp
     onSet(updated)
   }
 
-  async function createAndPick(type: EntityType) {
+  async function createAndPick(targetClass: string, seedClaims: SeedClaim[] = []) {
     setBusy(true)
-    setCreating(type)
+    setCreating(targetClass)
     try {
-      const entity = await api.entities.create({ type, primary_label: search.trim() })
+      const entity = await api.entities.create({ type: targetClass, primary_label: search.trim() })
+      if (seedClaims.length) {
+        await Promise.all(seedClaims.map(sc =>
+          api.claims.create({ subject_entity_id: entity.id, property: sc.property, value: sc.value })
+        ))
+      }
       const updated = await api.sources.update(source.id, {
         subject_entity_id: entity.id,
         subject_confirmed: true,
@@ -111,14 +117,15 @@ function TopicPicker({ source, suggestedText, onSet, onCancel }: TopicPickerProp
             + Create "{search.trim()}" as new entity
           </summary>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-            {ENTITY_TYPES.map(t => (
+            {(ontology?.templates ?? []).map(t => (
               <button
-                key={t}
+                key={t.name}
                 className="btn btn-secondary btn-sm"
-                onClick={() => createAndPick(t)}
+                title={t.source}
+                onClick={() => createAndPick(t.target_class, t.seed_claims)}
                 disabled={!!creating}
               >
-                {creating === t ? '…' : t}
+                {creating === t.name ? '…' : t.name}
               </button>
             ))}
           </div>
@@ -314,6 +321,7 @@ function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, 
   const [search, setSearch] = useState('')
   const [results, setResults] = useState<Entity[]>([])
   const [busy, setBusy] = useState(false)
+  const ontology = useOntology()
 
   useEffect(() => {
     Promise.all(linkedIds.map(id => api.entities.get(id))).then(setEntities)
@@ -346,10 +354,15 @@ function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, 
     }
   }
 
-  async function addNew(type: EntityType) {
+  async function addNew(targetClass: string, seedClaims: SeedClaim[] = []) {
     setBusy(true)
     try {
-      const e = await api.entities.create({ type, primary_label: surfaceForm })
+      const e = await api.entities.create({ type: targetClass, primary_label: surfaceForm })
+      if (seedClaims.length) {
+        await Promise.all(seedClaims.map(sc =>
+          api.claims.create({ subject_entity_id: e.id, property: sc.property, value: sc.value, source_id: sourceId })
+        ))
+      }
       await api.mentions.create({ entity_id: e.id, source_id: sourceId, surface_form: surfaceForm })
       onAdded(e.id)
       setAdding(false)
@@ -426,15 +439,16 @@ function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, 
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
             <span style={{ color: '#94a3b8' }}>+ new as:</span>
-            {ENTITY_TYPES.map(t => (
+            {(ontology?.templates ?? []).map(t => (
               <button
-                key={t}
+                key={t.name}
                 className="btn btn-secondary btn-sm"
                 style={{ padding: '2px 6px', fontSize: 11 }}
-                onClick={() => addNew(t)}
+                title={t.source}
+                onClick={() => addNew(t.target_class, t.seed_claims)}
                 disabled={busy}
               >
-                {t}
+                {t.name}
               </button>
             ))}
           </div>
