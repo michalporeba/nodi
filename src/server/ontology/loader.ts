@@ -46,23 +46,46 @@ export interface CompiledOntology {
 
 const DEFAULT_PATH = resolve(process.cwd(), 'data/ontology/welsh-film-tv.ttl')
 
-function ontologyPath(): string {
-  return process.env.NODI_ONTOLOGY
-    ? resolve(process.cwd(), process.env.NODI_ONTOLOGY)
-    : DEFAULT_PATH
+function ontologyPaths(): string[] {
+  if (!process.env.NODI_ONTOLOGY) return [DEFAULT_PATH]
+  return process.env.NODI_ONTOLOGY.split(',').map(p => resolve(process.cwd(), p.trim())).filter(Boolean)
 }
 
 let cached: CompiledOntology | null = null
 let cachedPath: string | null = null
 
 export function getOntology(): CompiledOntology {
-  if (!cached) cached = loadOntology(ontologyPath())
+  if (!cached) cached = loadOntologies(ontologyPaths())
   return cached
 }
 
 export function reloadOntology(): CompiledOntology {
-  cached = loadOntology(ontologyPath())
+  cached = loadOntologies(ontologyPaths())
   return cached
+}
+
+export function loadOntologies(paths: string[]): CompiledOntology {
+  if (paths.length === 1) return loadOntology(paths[0])
+  const parts = paths.map(p => loadOntology(p))
+  // Union: de-duplicate properties by IRI; merge classes and templates
+  const classes = new Set<string>()
+  const propertiesByIri = new Map<string, PropertyShape>()
+  const templates: TemplateShape[] = []
+  const pid_map: Record<string, string> = {}
+  for (const ont of parts) {
+    for (const c of ont.classes) classes.add(c)
+    for (const p of ont.properties) if (!propertiesByIri.has(p.iri)) propertiesByIri.set(p.iri, p)
+    for (const t of ont.templates) templates.push(t)
+  }
+  const properties = [...propertiesByIri.values()]
+  const by_key: Record<string, PropertyShape> = {}
+  const by_iri: Record<string, PropertyShape> = {}
+  for (const p of properties) {
+    by_key[p.key] = p
+    by_iri[p.iri] = p
+    if (p.pid) pid_map[p.key] = p.pid
+  }
+  return { classes: [...classes].sort(), properties, templates, by_key, by_iri, pid_map }
 }
 
 export function loadOntology(path: string): CompiledOntology {
@@ -186,21 +209,22 @@ function localName(iri: string): string {
   return iri
 }
 
-/** Watch the ontology file in dev — clears cache on change. */
+/** Watch the ontology file(s) in dev — clears cache on change. */
 export function watchOntology(): void {
   if (process.env.NODE_ENV === 'production') return
-  const path = ontologyPath()
-  try {
-    watch(path, () => {
-      try {
-        reloadOntology()
-        console.log(`[ontology] reloaded from ${path}`)
-      } catch (err) {
-        console.error(`[ontology] reload failed:`, err)
-      }
-    })
-  } catch (err) {
-    console.warn(`[ontology] watch unavailable for ${path}:`, err)
+  for (const path of ontologyPaths()) {
+    try {
+      watch(path, () => {
+        try {
+          reloadOntology()
+          console.log(`[ontology] reloaded from ${path}`)
+        } catch (err) {
+          console.error(`[ontology] reload failed:`, err)
+        }
+      })
+    } catch (err) {
+      console.warn(`[ontology] watch unavailable for ${path}:`, err)
+    }
   }
 }
 
