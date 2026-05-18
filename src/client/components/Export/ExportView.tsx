@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useOntology } from '../../data/ontology'
-import { api } from '../../api/client'
 
 type Readiness = 'everything' | 'ontology-mapped' | 'publication-ready'
+type RdfFormat = 'turtle' | 'nquads'
 
 const READINESS_OPTIONS: { value: Readiness; label: string; description: string }[] = [
   {
@@ -22,9 +22,10 @@ const READINESS_OPTIONS: { value: Readiness; label: string; description: string 
   },
 ]
 
-function buildTurtleUrl(readiness: Readiness, domains: string[]): string {
+function buildRdfUrl(readiness: Readiness, domains: string[], format: RdfFormat): string {
   const params = new URLSearchParams()
   params.set('readiness', readiness)
+  if (format === 'nquads') params.set('format', 'nquads')
   if (domains.length) params.set('domains', domains.join(','))
   return `/api/export/turtle?${params}`
 }
@@ -40,6 +41,7 @@ export function ExportView() {
   const ontology = useOntology()
   const [readiness, setReadiness] = useState<Readiness>('everything')
   const [selectedDomains, setSelectedDomains] = useState<string[]>([])
+  const [rdfFormat, setRdfFormat] = useState<RdfFormat>('turtle')
 
   const allDomains = ontology
     ? [...new Set(ontology.templates.map(t => t.source))]
@@ -51,7 +53,7 @@ export function ExportView() {
     )
   }
 
-  const turtleUrl = buildTurtleUrl(readiness, selectedDomains)
+  const rdfUrl = buildRdfUrl(readiness, selectedDomains, rdfFormat)
   const csvUrl = buildCsvUrl(readiness, selectedDomains)
 
   return (
@@ -108,13 +110,28 @@ export function ExportView() {
           )}
 
           <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
-            <h3 style={{ marginBottom: 8, fontSize: 15 }}>Turtle (RDF)</h3>
+            <h3 style={{ marginBottom: 12, fontSize: 15 }}>RDF format</h3>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" name="rdf-format" value="turtle" checked={rdfFormat === 'turtle'} onChange={() => setRdfFormat('turtle')} />
+                Turtle
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" name="rdf-format" value="nquads" checked={rdfFormat === 'nquads'} onChange={() => setRdfFormat('nquads')} />
+                N-Quads (with named graphs)
+              </label>
+            </div>
             <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.5 }}>
-              Exports entities as linked data using Wikidata PIDs where available.
-              Labels become <code>rdfs:label</code> triples. External IDs become <code>owl:sameAs</code>.
+              {rdfFormat === 'turtle'
+                ? 'Exports entities as linked data using Wikidata PIDs where available. Labels become rdfs:label triples. External IDs become owl:sameAs.'
+                : 'Each claim is placed in a named graph derived from its source, preserving provenance.'}
             </p>
-            <a className="btn btn-primary" href={turtleUrl} download="nodi-export.ttl">
-              ↓ Download Turtle
+            <a
+              className="btn btn-primary"
+              href={rdfUrl}
+              download={rdfFormat === 'nquads' ? 'nodi-export.nq' : 'nodi-export.ttl'}
+            >
+              ↓ Download {rdfFormat === 'nquads' ? 'N-Quads' : 'Turtle'}
             </a>
           </div>
 

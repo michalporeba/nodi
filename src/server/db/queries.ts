@@ -698,6 +698,14 @@ export function findRelationshipPaths(a: number, b: number): RelationshipResult 
 
 // ─── Export queries ───────────────────────────────────────────────────────────
 
+export function getLabelOnlyClaims(): Claim[] {
+  const db = getDb()
+  const rows = db.prepare(
+    'SELECT * FROM Claim WHERE subject_entity_id IS NULL AND subject_label IS NOT NULL'
+  ).all() as any[]
+  return rows.map(mapClaim)
+}
+
 export type ExportReadiness = 'everything' | 'ontology-mapped' | 'publication-ready'
 
 export function getAllEntitiesForExport(entityIds?: number[], readiness: ExportReadiness = 'everything'): EntityDetail[] {
