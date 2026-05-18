@@ -27,9 +27,17 @@ export interface PropertyShape {
   seed_claims: SeedClaim[]
 }
 
+export interface TemplateShape {
+  name: string
+  target_class: string
+  seed_claims: SeedClaim[]
+  source: string
+}
+
 export interface CompiledOntology {
   classes: string[]
   properties: PropertyShape[]
+  templates: TemplateShape[]
   by_key: Record<string, PropertyShape>
   by_iri: Record<string, PropertyShape>
   /** short property key → Wikidata PID (where defined) */
@@ -58,6 +66,7 @@ export function reloadOntology(): CompiledOntology {
 }
 
 export function loadOntology(path: string): CompiledOntology {
+  const source = path.split('/').pop() ?? path
   const ttl = readFileSync(path, 'utf8')
   const quads = new Parser().parse(ttl)
   const store = new Store(quads)
@@ -133,9 +142,36 @@ export function loadOntology(path: string): CompiledOntology {
     if (p.pid) pid_map[p.key] = p.pid
   }
 
+  // Degenerate templates — one per rdfs:Class (target_class = the class itself, no seeds)
+  const templates: TemplateShape[] = [...classes].sort().map(cls => ({
+    name: cls,
+    target_class: cls,
+    seed_claims: [],
+    source,
+  }))
+
+  // Explicit nodi:Template entries override/extend the degenerate list
+  for (const q of store.getQuads(null, `${RDF}type`, `${NODI}Template`, null)) {
+    const iri = q.subject.value
+    const labelQ = store.getQuads(iri, `${RDFS}label`, null, null)[0]
+    const targetQ = store.getQuads(iri, `${NODI}targetClass`, null, null)[0]
+    if (!labelQ || !targetQ) continue
+    const name = labelQ.object.value
+    const target_class = localName(targetQ.object.value)
+    const seed_claims: SeedClaim[] = []
+    for (const seedQ of store.getQuads(iri, `${NODI}seedClaim`, null, null)) {
+      const seedNode = seedQ.object
+      const propQ = store.getQuads(seedNode, `${NODI}property`, null, null)[0]
+      const valQ  = store.getQuads(seedNode, `${NODI}value`, null, null)[0]
+      if (propQ && valQ) seed_claims.push({ property: propQ.object.value, value: valQ.object.value })
+    }
+    templates.push({ name, target_class, seed_claims, source })
+  }
+
   return {
     classes: [...classes].sort(),
     properties,
+    templates,
     by_key,
     by_iri,
     pid_map,
