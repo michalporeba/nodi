@@ -6,7 +6,7 @@ nodi is intentionally narrow in scope: it solves the problem of going from a web
 
 ## What it does
 
-- Fetches and stores web pages locally with full HTML snapshots
+- Fetches and caches web pages locally for inspection during review (the cache is not the durable annotation anchor)
 - Scans loaded pages for known entity names and highlights them
 - Lets you select any text and annotate it as an entity (Person, Film, Character, etc.)
 - Tracks mentions — which entities appear in which sources
@@ -64,6 +64,7 @@ src/
     api/            # typed fetch wrappers
 data/
   nodi.db           # SQLite database (gitignored)
+  ontology/         # file-driven domain ontologies (TTL)
 docs/
   PRD.md            # product requirements and regression guardrails
   terms.md          # shared vocabulary for source review and graph data
@@ -72,7 +73,7 @@ docs/
   api.md            # API routes reference
   ui.md             # UI components and interaction flows
   matching.md       # string matching engine behaviour
-  domain.md         # entity types, properties, external ID systems
+  domain.md         # human-readable companion to the Welsh film/TV ontology
 ```
 
 ## Data portability
@@ -87,6 +88,8 @@ All data lives in `data/nodi.db` (SQLite). You can:
 
 ## Scope and roadmap
 
-The current implementation covers the **Welsh film and television** domain as a starting point. The entity types, properties, and external ID systems are defined in `docs/domain.md`. The architecture is designed to support additional domains (Welsh folk music, etc.) in future iterations.
+Multi-domain support is a core requirement. The initial domain ontologies cover **Welsh film and television**, **Welsh traditional music**, and **caves and caving in Wales**. Each domain is defined as a separate ontology file under `data/ontology/`; the current default lives at `data/ontology/welsh-film-tv.ttl`. Users can provide their own ontologies.
+
+At any time the user has an active set of one or more domain ontologies. Matching, suggestions, pickers, validation, and export operate on the union of the active set. See `docs/PRD.md` and `docs/terms.md` for the full design.
 
 PDF annotation, local LLM suggestions, and SHACL validation are out of scope for this version.

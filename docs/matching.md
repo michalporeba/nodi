@@ -2,7 +2,9 @@
 
 ## Purpose
 
-The matching engine scans source content (stored HTML or markdown) for occurrences of known entity labels and returns a structured list of matches with their positions and confirmation status. It runs server-side on demand — triggered when a source is opened in the viewer.
+The matching engine scans the source text exposed at review time (typically stored HTML or rendered markdown) for occurrences of known entity labels and returns a structured list of matches with their positions and confirmation status. It runs server-side on demand — triggered when a source is opened in the viewer.
+
+The source text passed to the engine is the cached or rendered representation available at scan time. Positions are rendering hints only; durable annotations do not depend on them, so the cached source can change or be refreshed without invalidating mentions or claims.
 
 No positions are persisted. Positions are character offsets computed at scan time and used only to render highlights in the client. If labels change or new entities are added, reopening the source produces fresh matches.
 

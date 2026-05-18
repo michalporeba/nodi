@@ -1,11 +1,18 @@
+Implementation-located findings as of the last review. See `docs/PRD.md`
+§ Known Product Risks for the design-level framing.
+
   - High: fetched pages are injected directly into the app DOM via innerHTML after only regex-removing
     <script>/<style> (src/client/components/SourceViewer/SourceContent.tsx:73). This contradicts the
     documented “sandboxed container / no external requests” model and can allow hostile markup, event
     handlers, iframes, forms, tracking images, and layout breakage inside the app.
-  - Medium: claim entry is too free-form for the data model. The domain docs distinguish text vs entity-valued properties (docs/domain.md:31), but both source-side and entity-detail claim forms only
-    collect arbitrary property + string value (src/client/components/SourceViewer/EntityPanel.tsx:579,
-    src/client/components/Entities/EntityDetail.tsx:317). This will create inconsistent graph data and
-    weaken RDF export quickly.
+  - Medium: the claim entry forms surface text and entity values uniformly, but the value kind for a
+    given property is not enforced. The ontology (`data/ontology/welsh-film-tv.ttl`) declares which
+    properties take text, which take entities, and which allow both via `nodi:textAllowed`; the source-
+    side and entity-detail claim forms (src/client/components/SourceViewer/EntityPanel.tsx:579,
+    src/client/components/Entities/EntityDetail.tsx:317) do not consult that guidance. The PRD direction
+    is label-first capture *with* the text/entity distinction preserved — free-form text is fine as a
+    starting point, but the UI should surface the value kind once the predicate maps to an ontology
+    property.
   - Medium: matching has two sources of truth. The server computes normalized plaintext positions (src/
     server/matching/engine.ts:67), but the client ignores those positions and rescans rendered DOM by
     surface_form (src/client/components/SourceViewer/SourceContent.tsx:80). That is simple, but brittle

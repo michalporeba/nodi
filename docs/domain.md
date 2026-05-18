@@ -1,8 +1,19 @@
 # Domain: Welsh Film and Television
 
-This file defines the entity types, properties, and external ID systems for the initial domain. Property keys used in the `Claim.property` column are listed alongside their Wikidata PID equivalents.
+This document is a **human-readable companion** to the file-driven ontology at
+`data/ontology/welsh-film-tv.ttl`. The TTL is authoritative — when the two
+disagree, the TTL wins. This file exists to make the domain inspectable
+without parsing turtle and to document modelling conventions specific to
+Welsh film and television.
 
-When the domain expands (e.g. to Welsh folk music), add a new section to this file and extend the entity type list in the schema if new types are needed.
+Welsh film and television is one of several initial domain ontologies,
+alongside Welsh traditional music and caves and caving in Wales. The product
+supports loading multiple ontologies into an active set; see `docs/PRD.md`
+and `docs/terms.md` for the multi-domain design.
+
+Additional domains live in their own ontology files under `data/ontology/`,
+each with their own human-readable companion document if useful. Do not
+collapse multiple domains into this file.
 
 ---
 

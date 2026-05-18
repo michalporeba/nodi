@@ -114,10 +114,12 @@ Add entities, or leave empty to save the value as a string.
 Linked entities (one claim per entity will be saved):
 [ Megan Harries (Character) × ]  [ + new (FictionalPerson) × ]
 
-+ new as: [Person] [Character] [FictionalPerson] [Film] …
++ new from template: [Person] [Actor] [Character] [Film] …
 
 [ ✓ Save claim · 2 entities ]  [ Cancel ]
 ```
+
+The `+ new from template` strip lists **class templates** loaded from the union of the active set of ontologies. Each button represents a template: plain classes such as `Person` are degenerate templates that just set the label and type; richer templates such as `Actor` seed additional claims (`occupation = Actor` on a `Person`). See `docs/terms.md` § Class Template. Template provenance — which ontology defined the template — is shown in the button's `title` attribute so the user can disambiguate name collisions between active ontologies.
 
 Save semantics depend on what's filled:
 
@@ -146,10 +148,10 @@ Property  [ cast_                  ]
 ```
 
 Suggestions are filtered by the typed text and the subject entity's type. They come from two sources:
-- Curated list in `src/client/data/properties.ts` (mirror of `docs/domain.md`, scoped by `applies_to`)
-- Live `GET /api/properties/used?subject_type=X` so ad-hoc properties already used in the DB are picked up
+- Ontology-defined properties from `GET /api/ontology`, taking the union over the active set of domain ontologies and scoping by the property's domain/range or applicable node shape
+- Live `GET /api/properties/used?subject_type=X` so predicate labels already used in the DB are picked up, including ad-hoc labels not defined in any active ontology
 
-Each row shows value type (`text` / `entity` / `both`) and the Wikidata PID when known; used-only entries show a `used ×N` badge. The last row is always `+ Use custom: <typed>` so new property keys can still be introduced.
+Each row shows value type (`text` / `entity` / `both`) and the Wikidata PID when known; used-only entries show a `used ×N` badge. The last row is always `+ Use custom: <typed>` so new predicate labels can still be introduced; they can be promoted to ontology properties later (see `docs/terms.md` § Promotion).
 
 Keyboard: ↑/↓ navigate, Enter accepts the highlighted option (or the typed text when nothing is highlighted), Esc closes.
 
@@ -218,6 +220,8 @@ Below the switcher, the entity's labels, external IDs, claims, and mentions are 
 - Click an *entity* value — read-only entity name plus `⤵ Unlink (back to text)` / `↻ Replace entity` / `Cancel`. Unlink writes `{ value: entity.primary_label, object_entity_id: null }` (the entity itself is preserved; only the link is broken).
 
 Property and value editors are mutually exclusive — opening one closes the other. Enter saves text edits; Esc cancels.
+
+**Notability marker.** Each claim row has a small notability toggle (☆ outline / ★ filled) next to the value. Marking a claim notable signals it should be included in the *Ready for external publication* export readiness level (see § Export) even when its entities are not yet reconciled. The marker is independent of reconciliation — a claim may be notable without external IDs, or reconciled without being marked notable. See `docs/terms.md` § Notability Marker for the design rationale.
 
 **External IDs include a search-log fallback.** Once the user has searched Wikidata for the entity:
 
@@ -318,10 +322,18 @@ Sections:
 
 ### 5. Export (`/export`)
 
-Simple form:
-- Export format: Turtle / CSV
-- Scope: All entities / Reconciled only / By type (checkboxes)
-- Download button
+Form:
+
+- **Format**: Turtle, RDF with named graphs (when provenance preservation is needed), CSVW (tabular with schema metadata), or QuickStatements (Wikidata-oriented; available only when claims are sufficiently mapped and reconciled).
+- **Readiness level** (three tiers, see `docs/PRD.md` § Notability and Export Readiness):
+  - *Everything captured* — includes unresolved labels and weakly structured claims; the broadest export, never silently drops data
+  - *Ontology-mapped* — only claims expressed with ontology properties
+  - *Ready for external publication* — ontology-mapped *and* either reconciled to an external database or marked notable
+- **Domain scope**: filter by one or more active domain ontologies, or export the union of the active set.
+- **By type**: optional filter within the chosen domain scope.
+- Download button.
+
+The export should make omissions and downgraded representations visible — for example, as warnings in a sidecar manifest or inline comments in the output — especially when the selected format cannot express the full local graph (e.g. plain Turtle without named graphs cannot preserve per-claim provenance).
 
 ---
 
