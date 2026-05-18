@@ -194,7 +194,8 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
   const ontology = useOntology()
   const propShape = getPropertyShape(ontology, property.trim())
   const defaultType = propShape?.default_entity_type as EntityType | null | undefined
-  const roleLabel = propShape?.role_label ?? defaultType
+  const defaultTemplate = ontology?.templates?.find(t => t.target_class === defaultType)
+  const roleLabel = defaultTemplate?.name ?? defaultType
 
   useEffect(() => {
     if (!linkedUrl) { setUrlSource(undefined); return }
@@ -427,7 +428,7 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
                   <button
                     className="btn btn-secondary btn-sm"
                     style={{ padding: '2px 8px', fontSize: 11, opacity: linked.some(l => l.kind === 'new' && l.type === defaultType) ? 0.4 : 1 }}
-                    onClick={() => addNew(defaultType)}
+                    onClick={() => addNew(defaultType, defaultTemplate?.seed_claims ?? [])}
                     disabled={linked.some(l => l.kind === 'new' && l.type === defaultType)}
                   >
                     {roleLabel}

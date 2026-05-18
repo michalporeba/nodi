@@ -197,7 +197,8 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
   const ontology = useOntology()
   const shape = getPropertyShape(ontology, claim.property)
   const defaultType = shape?.default_entity_type as EntityType | null | undefined
-  const roleLabel = shape?.role_label ?? defaultType
+  const defaultTemplate = ontology?.templates?.find(t => t.target_class === defaultType)
+  const roleLabel = defaultTemplate?.name ?? defaultType
 
   useEffect(() => {
     if (!promoting) return
@@ -286,7 +287,7 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
                 <button
                   className="btn btn-secondary btn-sm"
                   style={{ padding: '2px 6px', fontSize: 11 }}
-                  onClick={() => promoteToNew(defaultType)}
+                  onClick={() => promoteToNew(defaultType, defaultTemplate?.seed_claims ?? [])}
                   disabled={busy}
                 >
                   {roleLabel}
