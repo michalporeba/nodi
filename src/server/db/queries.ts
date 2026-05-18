@@ -1,5 +1,6 @@
 import type { SQLQueryBindings } from 'bun:sqlite'
 import { getDb } from './client'
+import { getOntology } from '../ontology/loader'
 
 type Params = SQLQueryBindings[]
 
@@ -697,7 +698,9 @@ export function findRelationshipPaths(a: number, b: number): RelationshipResult 
 
 // ─── Export queries ───────────────────────────────────────────────────────────
 
-export function getAllEntitiesForExport(entityIds?: number[]): EntityDetail[] {
+export type ExportReadiness = 'everything' | 'ontology-mapped' | 'publication-ready'
+
+export function getAllEntitiesForExport(entityIds?: number[], readiness: ExportReadiness = 'everything'): EntityDetail[] {
   const db = getDb()
   let ids: number[]
 
@@ -708,5 +711,21 @@ export function getAllEntitiesForExport(entityIds?: number[]): EntityDetail[] {
     ids = rows.map(r => r.id)
   }
 
-  return ids.map(id => getEntityDetail(id)).filter((e): e is EntityDetail => e !== null)
+  const entities = ids.map(id => getEntityDetail(id)).filter((e): e is EntityDetail => e !== null)
+  if (readiness === 'everything') return entities
+
+  const { by_key, pid_map } = getOntology()
+  const ontologyKeys = new Set([...Object.keys(by_key), ...Object.keys(pid_map)])
+
+  return entities.map(entity => {
+    const hasConfirmedWikidata = entity.external_ids.some(e => e.system === 'wikidata' && e.confirmed)
+    const filteredClaims = entity.claims.filter(claim => {
+      if (!ontologyKeys.has(claim.property)) return false
+      if (readiness === 'publication-ready') {
+        return claim.notable || hasConfirmedWikidata
+      }
+      return true
+    })
+    return { ...entity, claims: filteredClaims }
+  })
 }

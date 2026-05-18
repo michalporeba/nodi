@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { Writer, DataFactory } from 'n3'
-import { getAllEntitiesForExport } from '../db/queries'
+import { getAllEntitiesForExport, type ExportReadiness } from '../db/queries'
 import { getOntology } from '../ontology/loader'
 
 const { namedNode, literal, quad } = DataFactory
@@ -12,11 +12,17 @@ const LOCAL = 'http://nodi.local/entity/'
 
 const router = new Hono()
 
+function parseReadiness(raw: string | undefined): ExportReadiness {
+  if (raw === 'ontology-mapped' || raw === 'publication-ready') return raw
+  return 'everything'
+}
+
 router.get('/turtle', async c => {
   const entityIdsParam = c.req.query('entity_ids')
   const entityIds = entityIdsParam ? entityIdsParam.split(',').map(Number) : undefined
+  const readiness = parseReadiness(c.req.query('readiness'))
 
-  const entities = getAllEntitiesForExport(entityIds)
+  const entities = getAllEntitiesForExport(entityIds, readiness)
   const pidMap = getOntology().pid_map
 
   const writer = new Writer({ prefixes: { wd: WD, wdt: WDT, rdfs: RDFS, nodi: LOCAL } })
@@ -75,7 +81,8 @@ router.get('/turtle', async c => {
 })
 
 router.get('/csv', c => {
-  const entities = getAllEntitiesForExport()
+  const readiness = parseReadiness(c.req.query('readiness'))
+  const entities = getAllEntitiesForExport(undefined, readiness)
 
   // Group by type
   const byType = new Map<string, typeof entities>()
