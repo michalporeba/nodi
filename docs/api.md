@@ -277,9 +277,9 @@ Removes a mention (unconfirms the entity-source link). Does not delete associate
 ## Claims
 
 ### `POST /api/claims`
-Creates a claim.
+Creates a claim. Requires `property` and either `subject_entity_id` (existing entity) or `subject_label` (free-text label, for label-first capture). If a Mention already exists for this (entity, source, surface_form) tuple, returns the existing row.
 
-Request (text value):
+Request (entity subject, text value):
 ```json
 {
   "subject_entity_id": 7,
@@ -290,7 +290,7 @@ Request (text value):
 }
 ```
 
-Request (entity value):
+Request (entity subject, entity value):
 ```json
 {
   "subject_entity_id": 42,
@@ -300,15 +300,26 @@ Request (entity value):
 }
 ```
 
+Request (label-first subject):
+```json
+{
+  "subject_label": "Megan Harries",
+  "property": "occupation",
+  "value": "actor"
+}
+```
+
 ### `PATCH /api/claims/:id`
-Updates a claim's `property`, `value`, or `object_entity_id`. Any field omitted is unchanged; pass `null` explicitly to clear `value` or `object_entity_id`.
+Updates claim fields. Any field omitted is unchanged; pass `null` explicitly to clear nullable fields.
 
 Common edits:
-- **Edit the property** of an existing claim: `{ "property": "performer" }`
+- **Edit the property**: `{ "property": "performer" }`
 - **Edit a text value**: `{ "value": "1975-07-27" }`
 - **Promote a text value to an entity reference**: `{ "value": null, "object_entity_id": 42 }`
 - **Unlink an entity-valued claim back to a text label**: `{ "object_entity_id": null, "value": "Richard Harrington" }`
-- **Replace the linked entity** with a different one: `{ "object_entity_id": 99, "value": null }`
+- **Replace the linked entity**: `{ "object_entity_id": 99, "value": null }`
+- **Promote a label-first subject to an entity**: `{ "subject_entity_id": 123, "subject_label": null }`
+- **Mark a claim notable**: `{ "notable": true }`
 
 The server does not enforce the "exactly one of value/object_entity_id" rule; callers should set the other to `null` when switching kinds.
 
