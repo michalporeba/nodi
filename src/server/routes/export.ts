@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { Writer, DataFactory } from 'n3'
+import { zipSync, strToU8 } from 'fflate'
 import { getAllEntitiesForExport, getLabelOnlyClaims, type ExportReadiness } from '../db/queries'
 import { getOntology } from '../ontology/loader'
 
@@ -126,6 +127,118 @@ router.get('/csv', c => {
 
   return new Response(rows.join('\n'), {
     headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="nodi-entities.csv"' }
+  })
+})
+
+router.get('/csvw', c => {
+  const readiness = parseReadiness(c.req.query('readiness'))
+  const entities = getAllEntitiesForExport(undefined, readiness)
+  const { by_key, pid_map } = getOntology()
+
+  // Group entities by type
+  const byType = new Map<string, typeof entities>()
+  for (const entity of entities) {
+    const group = byType.get(entity.type) ?? []
+    group.push(entity)
+    byType.set(entity.type, group)
+  }
+
+  const files: Record<string, Uint8Array> = {}
+  const tableDescriptors: object[] = []
+
+  for (const [type, typeEntities] of byType) {
+    // Collect all property keys used by this type
+    const propKeys = new Set<string>()
+    for (const entity of typeEntities) {
+      for (const claim of entity.claims) propKeys.add(claim.property)
+    }
+    const props = [...propKeys].sort()
+
+    // CSV header + rows
+    const header = ['id', 'primary_label', 'wikidata_qid', ...props]
+    const rows = [header.join(',')]
+    for (const entity of typeEntities) {
+      const qid = entity.external_ids.find(e => e.system === 'wikidata')?.value ?? ''
+      const claimValues: Record<string, string> = {}
+      for (const claim of entity.claims) {
+        const existing = claimValues[claim.property]
+        const val = claim.object_label ?? claim.value ?? ''
+        claimValues[claim.property] = existing ? `${existing}|${val}` : val
+      }
+      const cols = [
+        entity.id,
+        `"${entity.primary_label.replace(/"/g, '""')}"`,
+        qid,
+        ...props.map(p => `"${(claimValues[p] ?? '').replace(/"/g, '""')}"`)
+      ]
+      rows.push(cols.join(','))
+    }
+
+    const filename = `${type.replace(/[^a-z0-9_-]/gi, '_')}.csv`
+    files[filename] = strToU8(rows.join('\n'))
+
+    // CSVW column descriptors
+    const columns = [
+      { name: 'id', datatype: 'integer', titles: 'id' },
+      { name: 'primary_label', datatype: 'string', titles: 'primary_label' },
+      { name: 'wikidata_qid', datatype: 'string', titles: 'wikidata_qid' },
+      ...props.map(p => {
+        const pid = pid_map[p] ?? by_key[p]?.pid ?? null
+        const col: Record<string, string> = { name: p, datatype: 'string', titles: p }
+        if (pid) col['propertyUrl'] = `http://www.wikidata.org/prop/direct/${pid}`
+        return col
+      })
+    ]
+    tableDescriptors.push({ url: filename, tableSchema: { columns } })
+  }
+
+  const metadata = { '@context': 'http://www.w3.org/ns/csvw', tables: tableDescriptors }
+  files['metadata.json'] = strToU8(JSON.stringify(metadata, null, 2))
+
+  const zip = zipSync(files)
+  return new Response(zip, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="nodi-export-csvw.zip"',
+    }
+  })
+})
+
+router.get('/quickstatements', c => {
+  const entities = getAllEntitiesForExport(undefined, 'publication-ready')
+  const { pid_map } = getOntology()
+
+  const lines: string[] = []
+  const entityQid = new Map<number, string>()
+  for (const entity of entities) {
+    const wikidata = entity.external_ids.find(e => e.system === 'wikidata' && e.confirmed)
+    if (wikidata) entityQid.set(entity.id, wikidata.value)
+  }
+
+  for (const entity of entities) {
+    const subjectQid = entityQid.get(entity.id)
+    if (!subjectQid) continue
+    for (const claim of entity.claims) {
+      const pid = pid_map[claim.property]
+      if (!pid) continue
+      if (claim.object_entity_id) {
+        const objectQid = entityQid.get(claim.object_entity_id)
+        if (objectQid) {
+          lines.push(`${subjectQid}\t${pid}\t${objectQid}`)
+        } else {
+          lines.push(`# warning: object entity ${claim.object_entity_id} has no Wikidata QID for ${subjectQid} ${pid}`)
+        }
+      } else if (claim.value) {
+        lines.push(`${subjectQid}\t${pid}\t"${claim.value}"`)
+      }
+    }
+  }
+
+  return new Response(lines.join('\n'), {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="nodi-quickstatements.txt"',
+    }
   })
 })
 

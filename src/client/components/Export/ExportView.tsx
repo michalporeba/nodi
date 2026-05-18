@@ -135,13 +135,35 @@ export function ExportView() {
             </a>
           </div>
 
-          <div className="card" style={{ padding: '20px 24px' }}>
+          <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
             <h3 style={{ marginBottom: 8, fontSize: 15 }}>CSV</h3>
             <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.5 }}>
-              Exports entities as a flat CSV file with type, label, Wikidata QID, mention count, and claim count.
+              Flat CSV with type, label, Wikidata QID, mention count, and claim count.
             </p>
             <a className="btn btn-primary" href={csvUrl} download="nodi-entities.csv">
               ↓ Download CSV
+            </a>
+          </div>
+
+          <div className="card" style={{ padding: '20px 24px', marginBottom: 16 }}>
+            <h3 style={{ marginBottom: 8, fontSize: 15 }}>CSVW (tabular + schema)</h3>
+            <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.5 }}>
+              ZIP containing one CSV per entity type plus a <code>metadata.json</code> with
+              column schemas and Wikidata property mappings.
+            </p>
+            <a className="btn btn-primary" href={`/api/export/csvw?readiness=${readiness}`} download="nodi-export-csvw.zip">
+              ↓ Download CSVW
+            </a>
+          </div>
+
+          <div className="card" style={{ padding: '20px 24px' }}>
+            <h3 style={{ marginBottom: 8, fontSize: 15 }}>QuickStatements (Wikidata)</h3>
+            <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.5 }}>
+              Batch upload commands for entities reconciled to Wikidata with ontology-mapped,
+              notable or reconciled claims. Uses <em>publication-ready</em> readiness level.
+            </p>
+            <a className="btn btn-primary" href="/api/export/quickstatements" download="nodi-quickstatements.txt">
+              ↓ Download QuickStatements
             </a>
           </div>
 
