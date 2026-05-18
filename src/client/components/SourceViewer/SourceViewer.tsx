@@ -7,6 +7,7 @@ import { ENTITY_TYPES } from '../../api/types'
 import { SourceContent } from './SourceContent'
 import { TopicSection, ActiveTopicSection, ActionsSection, RelationshipConnector } from './EntityPanel'
 import { PropertyPicker } from '../PropertyPicker'
+import { useOntology, getPropertyShape } from '../../data/ontology'
 
 // ─── Popovers ─────────────────────────────────────────────────────────────────
 
@@ -180,7 +181,8 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
   onDismiss: () => void
 }) {
   const [activeEntity, setActiveEntity] = useState<Entity | null>(null)
-  const [property, setProperty] = useState('')
+  const [propertyRaw, setPropertyRaw] = useState('')
+  const [showAllTypes, setShowAllTypes] = useState(false)
   const [value, setValue] = useState(text)
   const [results, setResults] = useState<Entity[]>([])
   const [loadingSearch, setLoadingSearch] = useState(false)
@@ -188,6 +190,12 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
   const [saving, setSaving] = useState(false)
   const [urlSource, setUrlSource] = useState<Source | null | undefined>(undefined)
   const [queueing, setQueueing] = useState(false)
+  const property = propertyRaw
+  function setProperty(v: string) { setPropertyRaw(v); setShowAllTypes(false) }
+  const ontology = useOntology()
+  const propShape = getPropertyShape(ontology, property.trim())
+  const defaultType = propShape?.default_entity_type as EntityType | null | undefined
+  const roleLabel = propShape?.role_label ?? defaultType
 
   useEffect(() => {
     if (!linkedUrl) { setUrlSource(undefined); return }
@@ -250,11 +258,20 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
     if (!canSave) return
     setSaving(true)
 
-    // Resolve any 'new' entries by creating the entity
+    // Resolve any 'new' entries by creating the entity (plus seed claims if defined)
     const resolved: Entity[] = []
     for (const item of linked) {
-      if (item.kind === 'existing') resolved.push(item.entity)
-      else resolved.push(await api.entities.create({ type: item.type, primary_label: value.trim() }))
+      if (item.kind === 'existing') {
+        resolved.push(item.entity)
+      } else {
+        const newEntity = await api.entities.create({ type: item.type, primary_label: value.trim() })
+        resolved.push(newEntity)
+        if (propShape?.seed_claims?.length) {
+          await Promise.all(propShape.seed_claims.map(sc =>
+            api.claims.create({ subject_entity_id: newEntity.id, property: sc.property, value: sc.value, source_id: sourceId })
+          ))
+        }
+      }
     }
 
     // Mentions: link the surface form to each entity in this source
@@ -393,20 +410,40 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
           {value.trim() && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: '#64748b' }}>+ new as:</span>
-              {ENTITY_TYPES.map(t => {
-                const already = linked.some(l => l.kind === 'new' && l.type === t)
-                return (
+              {defaultType && !showAllTypes ? (
+                <>
                   <button
-                    key={t}
                     className="btn btn-secondary btn-sm"
-                    style={{ padding: '2px 8px', fontSize: 11, opacity: already ? 0.4 : 1 }}
-                    onClick={() => addNew(t)}
-                    disabled={already}
+                    style={{ padding: '2px 8px', fontSize: 11, opacity: linked.some(l => l.kind === 'new' && l.type === defaultType) ? 0.4 : 1 }}
+                    onClick={() => addNew(defaultType)}
+                    disabled={linked.some(l => l.kind === 'new' && l.type === defaultType)}
                   >
-                    {t}
+                    {roleLabel}
                   </button>
-                )
-              })}
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: '2px 4px', fontSize: 10, color: '#94a3b8' }}
+                    onClick={() => setShowAllTypes(true)}
+                  >
+                    other…
+                  </button>
+                </>
+              ) : (
+                ENTITY_TYPES.map(t => {
+                  const already = linked.some(l => l.kind === 'new' && l.type === t)
+                  return (
+                    <button
+                      key={t}
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: 11, opacity: already ? 0.4 : 1 }}
+                      onClick={() => addNew(t)}
+                      disabled={already}
+                    >
+                      {t}
+                    </button>
+                  )
+                })
+              )}
             </div>
           )}
         </div>

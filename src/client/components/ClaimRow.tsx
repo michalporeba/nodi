@@ -173,6 +173,7 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
   const ontology = useOntology()
   const shape = getPropertyShape(ontology, claim.property)
   const defaultType = shape?.default_entity_type as EntityType | null | undefined
+  const roleLabel = shape?.role_label ?? defaultType
 
   useEffect(() => {
     if (!promoting) return
@@ -205,8 +206,9 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
       const e = await api.entities.create({ type, primary_label: text.trim() })
       await api.claims.update(claim.id, { value: null, object_entity_id: e.id })
       if (shape?.seed_claims?.length) {
+        const sourceId = claim.source_id ?? undefined
         await Promise.all(shape.seed_claims.map(sc =>
-          api.claims.create({ subject_entity_id: e.id, property: sc.property, value: sc.value })
+          api.claims.create({ subject_entity_id: e.id, property: sc.property, value: sc.value, source_id: sourceId })
         ))
       }
       onDone()
@@ -262,7 +264,7 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
                   onClick={() => promoteToNew(defaultType)}
                   disabled={busy}
                 >
-                  {defaultType}
+                  {roleLabel}
                 </button>
                 <button
                   className="btn btn-ghost btn-sm"

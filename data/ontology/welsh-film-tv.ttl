@@ -62,6 +62,7 @@ wdt:P161 a rdf:Property ;
   rdfs:label "cast_member" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "actor" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "actor" ] .
 
 wdt:P674 a rdf:Property ;
@@ -88,30 +89,35 @@ wdt:P57 a rdf:Property ;
   rdfs:label "director" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "director" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "director" ] .
 
 wdt:P58 a rdf:Property ;
   rdfs:label "screenwriter" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "screenwriter" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "screenwriter" ] .
 
 wdt:P162 a rdf:Property ;
   rdfs:label "producer" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "producer" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "producer" ] .
 
 wdt:P86 a rdf:Property ;
   rdfs:label "composer" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "composer" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "composer" ] .
 
 wdt:P1040 a rdf:Property ;
   rdfs:label "film_editor" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "film editor" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "film editor" ] .
 
 wdt:P577 a rdf:Property ;
@@ -141,12 +147,14 @@ wdt:P175 a rdf:Property ;
   rdfs:label "performer" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "actor" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "actor" ] .
 
 wdt:P725 a rdf:Property ;
   rdfs:label "voice_actor" ;
   sh:class nodi:Person ;
   nodi:defaultEntityType nodi:Person ;
+  nodi:roleLabel "voice actor" ;
   nodi:seedClaim [ nodi:property "occupation" ; nodi:value "voice actor" ] .
 
 wdt:P4584 a rdf:Property ;

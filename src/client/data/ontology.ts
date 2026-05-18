@@ -16,6 +16,7 @@ export interface PropertyShape {
   applies_to: string[]
   class_range: string | null
   default_entity_type: string | null
+  role_label: string | null
   seed_claims: SeedClaim[]
 }
 

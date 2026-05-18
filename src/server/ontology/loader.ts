@@ -23,6 +23,7 @@ export interface PropertyShape {
   applies_to: string[]
   class_range: string | null
   default_entity_type: string | null
+  role_label: string | null
   seed_claims: SeedClaim[]
 }
 
@@ -77,6 +78,7 @@ export function loadOntology(path: string): CompiledOntology {
     const datatypeObj = store.getQuads(iri, `${SH}datatype`, null, null)[0]
     const textAllowedObj = store.getQuads(iri, `${NODI}textAllowed`, null, null)[0]
     const defaultTypeObj = store.getQuads(iri, `${NODI}defaultEntityType`, null, null)[0]
+    const roleLabelObj = store.getQuads(iri, `${NODI}roleLabel`, null, null)[0]
 
     let value_type: PropertyValueType
     if (classObj && (textAllowedObj?.object.value === 'true')) value_type = 'both'
@@ -102,6 +104,7 @@ export function loadOntology(path: string): CompiledOntology {
       applies_to: [],
       class_range: classObj ? localName(classObj.object.value) : null,
       default_entity_type: defaultTypeObj ? localName(defaultTypeObj.object.value) : null,
+      role_label: roleLabelObj ? roleLabelObj.object.value : null,
       seed_claims,
     })
   }
