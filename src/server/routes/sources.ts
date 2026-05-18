@@ -129,7 +129,7 @@ router.post('/:id/mentions/confirm-all', async c => {
 
   const matches = await runMatchingEngine(sourceId, source.content)
   const existing = getMentionsBySource(sourceId)
-  const confirmedEntityIds = new Set(existing.map(m => m.entity_id))
+  const confirmedPairs = new Set(existing.map(m => `${m.entity_id}:${m.surface_form}`))
 
   let confirmed = 0
   const skippedAmbiguous = []
@@ -141,9 +141,10 @@ router.post('/:id/mentions/confirm-all', async c => {
     }
     if (match.status === 'suggested' && match.entity_ids.length === 1) {
       const entityId = match.entity_ids[0]
-      if (!confirmedEntityIds.has(entityId)) {
+      const pairKey = `${entityId}:${match.surface_form}`
+      if (!confirmedPairs.has(pairKey)) {
         createMention({ entity_id: entityId, source_id: sourceId, surface_form: match.surface_form })
-        confirmedEntityIds.add(entityId)
+        confirmedPairs.add(pairKey)
         confirmed++
       }
     }

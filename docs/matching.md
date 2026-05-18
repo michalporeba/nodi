@@ -42,11 +42,11 @@ Collect all matches as `{ label_value, start, end, surface_form }` where `surfac
 
 ### 3. Resolve confirmation status
 
-For each match, look up the entity IDs for that label value, and intersect them with the set of entities that have confirmed Mentions for this source:
+For each match group, look up the entity IDs for that label value and intersect with the set of entities that have a confirmed Mention for this source **with this exact surface form** (case-insensitive):
 
-- **At least one candidate entity has a confirmed Mention** → status: `confirmed`. `confirmed_entity_ids` is the full intersection (may contain more than one — see "Multi-entity per surface form" below).
-- **No confirmed Mention, single candidate entity** → status: `suggested`
-- **No confirmed Mention, multiple candidate entities** → status: `ambiguous`
+- **At least one candidate entity has a confirmed Mention for this surface form** → status: `confirmed`. `confirmed_entity_ids` is the full intersection (may contain more than one — see "Multi-entity per surface form" below).
+- **No confirmed Mention for this surface form, single candidate entity** → status: `suggested`
+- **No confirmed Mention for this surface form, multiple candidate entities** → status: `ambiguous`
 
 This means a label like "Megan Harries" that the user has confirmed against both a `Character` and a `FictionalPerson` entity is reported as a single `confirmed` match with `confirmed_entity_ids: [characterId, fictionalPersonId]`, not as `ambiguous`. The UI surfaces the multi-entity case with a switcher.
 

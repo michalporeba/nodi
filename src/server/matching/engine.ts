@@ -48,7 +48,14 @@ export async function runMatchingEngine(sourceId: number, content: string): Prom
   const labels = getAllLabelsForMatching()
   const confirmedMentions = getConfirmedMentionsBySource(sourceId)
 
-  const confirmedEntityIds = new Set(confirmedMentions.map(m => m.entity_id))
+  // Key confirmed status on (surface_form, entity_id) per Step 4.1
+  const confirmedBySurface = new Map<string, Set<number>>()
+  for (const m of confirmedMentions) {
+    const key = m.surface_form.toLowerCase()
+    const existing = confirmedBySurface.get(key)
+    if (existing) existing.add(m.entity_id)
+    else confirmedBySurface.set(key, new Set([m.entity_id]))
+  }
 
   // Build index: lowercase label → entity_ids[]
   const labelIndex = new Map<string, { original: string; entityIds: number[] }>()
@@ -110,7 +117,9 @@ export async function runMatchingEngine(sourceId: number, content: string): Prom
   for (const { match, positions } of grouped.values()) {
     const { originalLabel, entityIds } = match
 
-    const confirmedIds = entityIds.filter(id => confirmedEntityIds.has(id))
+    const surfaceKey = surfaceForm.toLowerCase()
+    const confirmedForSurface = confirmedBySurface.get(surfaceKey) ?? new Set<number>()
+    const confirmedIds = entityIds.filter(id => confirmedForSurface.has(id))
 
     let status: MatchStatus
     if (confirmedIds.length >= 1) {
