@@ -11,6 +11,8 @@
     "start": "NODE_ENV=production bun src/server/index.ts"
   },
   "dependencies": {
+    "@types/dompurify": "^3.2.0",
+    "dompurify": "^3.4.5",
     "fflate": "^0.8.3",
     "hono": "^4.6.3",
     "n3": "^1.22.0"
