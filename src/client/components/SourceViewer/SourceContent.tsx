@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import DOMPurify from 'dompurify'
 import type { Match } from '../../api/types'
 
 interface Props {
@@ -179,9 +180,12 @@ export function SourceContent({ html, matches, onMatchClick, onTextSelect }: Pro
 
     const prevScroll = el.scrollTop
 
-    const sanitised = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
+    const sanitised = DOMPurify.sanitize(html, {
+      FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
+      FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onchange',
+                    'onsubmit', 'onreset', 'onkeydown', 'onkeyup', 'onkeypress', 'action', 'formaction'],
+      FORCE_BODY: true,
+    })
 
     el.innerHTML = sanitised
 
