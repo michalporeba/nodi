@@ -134,6 +134,15 @@ export function ClaimRow({ claim, subjectType, onChanged, onDeleted, hidePropert
       </div>
       <button
         className="btn btn-ghost btn-sm"
+        onClick={async () => {
+          await api.claims.update(claim.id, { notable: !claim.notable })
+          onChanged()
+        }}
+        style={{ color: claim.notable ? '#f59e0b' : '#cbd5e1', padding: '2px 4px', flexShrink: 0, fontSize: 14 }}
+        title={claim.notable ? 'Mark as not notable' : 'Mark as notable'}
+      >{claim.notable ? '★' : '☆'}</button>
+      <button
+        className="btn btn-ghost btn-sm"
         onClick={onDeleted}
         style={{ color: '#ef4444', padding: '2px 6px', flexShrink: 0 }}
         title="Delete claim"

@@ -95,7 +95,7 @@ export const api = {
       mention_id?: number
       source_id?: number
     }) => post<Claim>('/claims', data),
-    update: (id: number, data: { value?: string | null; object_entity_id?: number | null; property?: string }) =>
+    update: (id: number, data: { value?: string | null; object_entity_id?: number | null; property?: string; notable?: boolean; subject_entity_id?: number | null; subject_label?: string | null }) =>
       patch<Claim>(`/claims/${id}`, data),
     delete: (id: number) => del<{ ok: boolean }>(`/claims/${id}`),
   },
