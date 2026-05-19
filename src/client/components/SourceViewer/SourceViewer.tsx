@@ -195,7 +195,12 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
   const ontology = useOntology()
   const propShape = getPropertyShape(ontology, property.trim())
   const defaultType = propShape?.default_entity_type as EntityType | null | undefined
-  const defaultTemplate = ontology?.templates?.find(t => t.target_class === defaultType)
+  const propSeeds = propShape?.seed_claims ?? []
+  const defaultTemplate = ontology?.templates?.find(t => {
+    if (t.target_class !== defaultType) return false
+    if (propSeeds.length === 0) return t.seed_claims.length === 0
+    return propSeeds.some(ps => t.seed_claims.some(ts => ts.property === ps.property && ts.value === ps.value))
+  }) ?? ontology?.templates?.find(t => t.target_class === defaultType)
   const roleLabel = defaultTemplate?.name ?? defaultType
 
   useEffect(() => {
