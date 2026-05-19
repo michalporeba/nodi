@@ -117,6 +117,10 @@ export async function runMatchingEngine(sourceId: number, content: string): Prom
   for (const { match, positions } of grouped.values()) {
     const { originalLabel, entityIds } = match
 
+    // Surface form: the actual text at the first position
+    const firstPos = positions[0]
+    const surfaceForm = plainText.slice(firstPos.start, firstPos.end)
+
     const surfaceKey = surfaceForm.toLowerCase()
     const confirmedForSurface = confirmedBySurface.get(surfaceKey) ?? new Set<number>()
     const confirmedIds = entityIds.filter(id => confirmedForSurface.has(id))
@@ -129,10 +133,6 @@ export async function runMatchingEngine(sourceId: number, content: string): Prom
     } else {
       status = 'suggested'
     }
-
-    // Surface form: the actual text at the first position
-    const firstPos = positions[0]
-    const surfaceForm = plainText.slice(firstPos.start, firstPos.end)
 
     results.push({
       label_value: originalLabel,
