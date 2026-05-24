@@ -119,10 +119,10 @@ router.get('/csv', c => {
   const readiness = parseReadiness(c.req.query('readiness'))
   const entities = getAllEntitiesForExport(undefined, readiness)
 
-  const rows = ['type,id,primary_label,wikidata_external_id,mention_count,claim_count']
+  const rows = ['types,id,primary_label,wikidata_external_id,mention_count,claim_count']
   for (const entity of entities) {
     const qid = entity.external_ids.find(e => e.system === 'wikidata')?.value ?? ''
-    rows.push([entity.type, entity.id, `"${entity.primary_label.replace(/"/g, '""')}"`, qid, entity.mention_count, entity.claim_count].join(','))
+    rows.push([`"${entity.types.join('|')}"`, entity.id, `"${entity.primary_label.replace(/"/g, '""')}"`, qid, entity.mention_count, entity.claim_count].join(','))
   }
 
   return new Response(rows.join('\n'), {
@@ -135,22 +135,27 @@ router.get('/csvw', c => {
   const entities = getAllEntitiesForExport(undefined, readiness)
   const { by_key, pid_map } = getOntology()
 
-  // Group entities by type
+  // Group entities by type; multi-type entities appear in each matching CSV (option a).
   const byType = new Map<string, typeof entities>()
   for (const entity of entities) {
-    const group = byType.get(entity.type) ?? []
-    group.push(entity)
-    byType.set(entity.type, group)
+    const types = entity.types
+    for (const t of types) {
+      const group = byType.get(t) ?? []
+      group.push(entity)
+      byType.set(t, group)
+    }
   }
 
   const files: Record<string, Uint8Array> = {}
   const tableDescriptors: object[] = []
 
   for (const [type, typeEntities] of byType) {
-    // Collect all property keys used by this type
+    // Collect property keys used by this type (exclude instance_of — surfaced as grouping)
     const propKeys = new Set<string>()
     for (const entity of typeEntities) {
-      for (const claim of entity.claims) propKeys.add(claim.property)
+      for (const claim of entity.claims) {
+        if (claim.property !== 'instance_of') propKeys.add(claim.property)
+      }
     }
     const props = [...propKeys].sort()
 
@@ -161,6 +166,7 @@ router.get('/csvw', c => {
       const qid = entity.external_ids.find(e => e.system === 'wikidata')?.value ?? ''
       const claimValues: Record<string, string> = {}
       for (const claim of entity.claims) {
+        if (claim.property === 'instance_of') continue
         const existing = claimValues[claim.property]
         const val = claim.object_label ?? claim.value ?? ''
         claimValues[claim.property] = existing ? `${existing}|${val}` : val

@@ -64,8 +64,10 @@ export const api = {
     get: (id: number) => get<EntityDetail>(`/entities/${id}`),
     create: (data: { type: EntityType; primary_label: string; language?: string }) =>
       post<Entity>('/entities', data),
-    update: (id: number, data: { type?: EntityType }) => patch<EntityDetail>(`/entities/${id}`, data),
+    update: (id: number, data: { primary_label?: string; language?: string | null }) => patch<EntityDetail>(`/entities/${id}`, data),
     delete: (id: number) => del<{ ok: boolean }>(`/entities/${id}`),
+    merge: (canonicalId: number, absorbIds: number[]) =>
+      post<EntityDetail>(`/entities/${canonicalId}/merge`, { absorbIds }),
   },
 
   labels: {
@@ -87,11 +89,15 @@ export const api = {
     create: (data: { entity_id: number; source_id: number; surface_form: string }) =>
       post<Mention>('/mentions', data),
     delete: (id: number) => del<{ ok: boolean }>(`/mentions/${id}`),
+    deleteByTriple: (entity_id: number, source_id: number, surface_form: string) =>
+      del<{ ok: boolean }>(`/mentions?entity_id=${entity_id}&source_id=${source_id}&surface_form=${encodeURIComponent(surface_form)}`),
   },
 
   claims: {
-    create: (data: {
-      subject_entity_id: number
+    create: (data: (
+      | { subject_entity_id: number; subject_label?: never }
+      | { subject_label: string; subject_entity_id?: never }
+    ) & {
       property: string
       value?: string
       object_entity_id?: number

@@ -27,7 +27,7 @@ export interface Source {
 
 export interface Entity {
   id: number
-  type: EntityType
+  types: string[]
   primary_label: string
   mention_count: number
   claim_count: number
@@ -137,9 +137,10 @@ function mapSource(row: Record<string, unknown>, includeContent = false): Source
 }
 
 function mapEntity(row: Record<string, unknown>): Entity {
+  const typesCsv = row.types_csv as string | null
   return {
     id: row.id as number,
-    type: row.type as EntityType,
+    types: typesCsv ? typesCsv.split(',').filter(Boolean) : [],
     primary_label: (row.primary_label as string) ?? '(no label)',
     mention_count: (row.mention_count as number) ?? 0,
     claim_count: (row.claim_count as number) ?? 0,
@@ -199,10 +200,15 @@ function mapClaim(row: Record<string, unknown>): Claim {
 
 const ENTITY_AGGREGATE_SQL = `
   SELECT
-    e.id, e.type, e.created_at,
+    e.id, e.created_at,
     COALESCE((SELECT l2.value FROM Label l2 WHERE l2.entity_id = e.id AND l2.is_primary = 1 LIMIT 1), '(no label)') as primary_label,
     (SELECT COUNT(*) FROM Mention m WHERE m.entity_id = e.id) as mention_count,
-    (SELECT COUNT(*) FROM Claim c WHERE c.subject_entity_id = e.id) as claim_count
+    (SELECT COUNT(*) FROM Claim c WHERE c.subject_entity_id = e.id) as claim_count,
+    (SELECT GROUP_CONCAT(c2.value, ',') FROM (
+       SELECT DISTINCT c2.value FROM Claim c2
+       WHERE c2.subject_entity_id = e.id AND c2.property = 'instance_of' AND c2.value IS NOT NULL
+       ORDER BY c2.value
+     ) c2) as types_csv
   FROM Entity e
 `
 
@@ -329,7 +335,7 @@ export function getEntities(filters: { type?: string; q?: string; unreconciled?:
   const parts: string[] = ['WHERE 1=1']
   const params: Params = []
 
-  if (filters.type) { parts.push('AND e.type = ?'); params.push(filters.type) }
+  if (filters.type) { parts.push('AND EXISTS (SELECT 1 FROM Claim ct WHERE ct.subject_entity_id = e.id AND ct.property = \'instance_of\' AND ct.value = ?)'); params.push(filters.type) }
   if (filters.q) { parts.push('AND EXISTS (SELECT 1 FROM Label l WHERE l.entity_id = e.id AND l.value LIKE ? COLLATE NOCASE)'); params.push(`%${filters.q}%`) }
   if (filters.unreconciled) { parts.push('AND NOT EXISTS (SELECT 1 FROM ExternalID eid WHERE eid.entity_id = e.id AND eid.system = \'wikidata\' AND eid.confirmed = 1)') }
 
@@ -337,9 +343,12 @@ export function getEntities(filters: { type?: string; q?: string; unreconciled?:
   return (db.prepare(sql).all(...params) as Record<string, unknown>[]).map(mapEntity)
 }
 
-export function getEntityById(id: number): { id: number; type: EntityType } | null {
+export function getEntityById(id: number): { id: number; types: string[] } | null {
   const db = getDb()
-  return db.prepare('SELECT id, type FROM Entity WHERE id = ?').get(id) as { id: number; type: EntityType } | null
+  const row = db.prepare('SELECT id FROM Entity WHERE id = ?').get(id) as { id: number } | null
+  if (!row) return null
+  const typesCsv = (db.prepare(`SELECT GROUP_CONCAT(value, ',') as csv FROM (SELECT DISTINCT value FROM Claim WHERE subject_entity_id = ? AND property = 'instance_of' AND value IS NOT NULL ORDER BY value)`).get(id) as { csv: string | null })?.csv ?? null
+  return { id: row.id, types: typesCsv ? typesCsv.split(',').filter(Boolean) : [] }
 }
 
 export function getEntityDetail(id: number): EntityDetail | null {
@@ -353,7 +362,7 @@ export function getEntityDetail(id: number): EntityDetail | null {
   const claimRows = db.prepare(`
     SELECT c.*,
       (SELECT l.value FROM Label l WHERE l.entity_id = c.object_entity_id AND l.is_primary = 1 LIMIT 1) as object_label,
-      (SELECT e.type FROM Entity e WHERE e.id = c.object_entity_id LIMIT 1) as object_type,
+      (SELECT GROUP_CONCAT(ct.value, ',') FROM (SELECT DISTINCT ct.value FROM Claim ct WHERE ct.subject_entity_id = c.object_entity_id AND ct.property = 'instance_of' AND ct.value IS NOT NULL ORDER BY ct.value) ct) as object_type,
       (SELECT s.title FROM Source s WHERE s.id = c.source_id LIMIT 1) as source_title
     FROM Claim c
     WHERE c.subject_entity_id = ?
@@ -405,22 +414,96 @@ export function recordEntitySearch(entityId: number, system: string, resultCount
 
 export function createEntity(data: { type: EntityType; primary_label: string; language?: string }): Entity {
   const db = getDb()
-  const entityResult = db.prepare('INSERT INTO Entity (type) VALUES (?)').run(data.type)
+  const entityResult = db.prepare('INSERT INTO Entity DEFAULT VALUES').run()
   const entityId = entityResult.lastInsertRowid as number
   db.prepare('INSERT INTO Label (entity_id, value, language, is_primary) VALUES (?, ?, ?, 1)').run(
     entityId, data.primary_label, data.language ?? 'en'
   )
+  db.prepare('INSERT INTO Claim (subject_entity_id, property, value, notable) VALUES (?, \'instance_of\', ?, 0)').run(entityId, data.type)
   return getEntities({ q: data.primary_label }).find(e => e.id === entityId)!
 }
 
-export function updateEntity(id: number, data: { type?: EntityType }): void {
-  const db = getDb()
-  if (data.type) db.prepare('UPDATE Entity SET type = ? WHERE id = ?').run(data.type, id)
+export function updateEntity(_id: number, _data: Record<string, unknown>): void {
+  // Entity.type column removed (Phase F). Type changes happen via instance_of claims.
 }
 
 export function deleteEntity(id: number): void {
   const db = getDb()
   db.prepare('DELETE FROM Entity WHERE id = ?').run(id)
+}
+
+export function mergeEntities(canonicalId: number, absorbIds: number[]): EntityDetail | null {
+  const db = getDb()
+
+  db.transaction(() => {
+    for (const absorbId of absorbIds) {
+      if (absorbId === canonicalId) continue
+
+      // Labels: insert unique (value, language) pairs not already on canonical
+      db.prepare(`
+        INSERT INTO Label (entity_id, value, language, is_primary, is_alias)
+        SELECT ?, l.value, l.language, 0, 1
+        FROM Label l
+        WHERE l.entity_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM Label l2
+            WHERE l2.entity_id = ? AND l2.value = l.value COLLATE NOCASE AND l2.language IS l.language
+          )
+      `).run(canonicalId, absorbId, canonicalId)
+
+      // ExternalID: UNIQUE(entity_id, system) — INSERT OR IGNORE keeps canonical's entry on conflict
+      db.prepare(`
+        INSERT OR IGNORE INTO ExternalID (entity_id, system, value, url, confirmed)
+        SELECT ?, system, value, url, confirmed
+        FROM ExternalID WHERE entity_id = ?
+      `).run(canonicalId, absorbId)
+
+      // Mentions: UNIQUE(entity_id, source_id, surface_form) — INSERT OR IGNORE skips duplicates
+      db.prepare(`
+        INSERT OR IGNORE INTO Mention (entity_id, source_id, surface_form, confirmed, confirmed_at)
+        SELECT ?, source_id, surface_form, confirmed, confirmed_at
+        FROM Mention WHERE entity_id = ?
+      `).run(canonicalId, absorbId)
+
+      // Source.subject_entity_id: re-point
+      db.prepare(`UPDATE Source SET subject_entity_id = ? WHERE subject_entity_id = ?`).run(canonicalId, absorbId)
+
+      // Claims where absorbed is subject: copy non-duplicate (property+value+object) pairs
+      // Set mention_id = NULL since absorbed entity's mention rows will be deleted
+      db.prepare(`
+        INSERT INTO Claim (subject_entity_id, subject_label, property, value, object_entity_id, mention_id, source_id, notable)
+        SELECT ?, subject_label, property, value, object_entity_id, NULL, source_id, notable
+        FROM Claim c
+        WHERE c.subject_entity_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM Claim c2
+            WHERE c2.subject_entity_id = ?
+              AND c2.property = c.property
+              AND c2.value IS c.value
+              AND c2.object_entity_id IS c.object_entity_id
+          )
+      `).run(canonicalId, absorbId, canonicalId)
+
+      // Drop canonical's own claims pointing to absorbed (would become self-referential after re-pointing)
+      db.prepare(`DELETE FROM Claim WHERE subject_entity_id = ? AND object_entity_id = ?`).run(canonicalId, absorbId)
+
+      // Claims where absorbed is object: re-point to canonical (no self-referential created since canonical→absorbed deleted above)
+      db.prepare(`UPDATE Claim SET object_entity_id = ? WHERE object_entity_id = ?`).run(canonicalId, absorbId)
+
+      // EntitySearchLog: UNIQUE(entity_id, system) — INSERT OR IGNORE keeps canonical's entry
+      db.prepare(`
+        INSERT OR IGNORE INTO EntitySearchLog (entity_id, system, last_searched_at, result_count)
+        SELECT ?, system, last_searched_at, result_count
+        FROM EntitySearchLog WHERE entity_id = ?
+      `).run(canonicalId, absorbId)
+
+      // Delete absorbed entity — CASCADE removes its remaining Label, ExternalID,
+      // Mention, Claim (subject), EntitySearchLog rows
+      db.prepare(`DELETE FROM Entity WHERE id = ?`).run(absorbId)
+    }
+  })()
+
+  return getEntityDetail(canonicalId)
 }
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
@@ -526,7 +609,18 @@ export function deleteMention(id: number): void {
   db.prepare('DELETE FROM Mention WHERE id = ?').run(id)
 }
 
+export function deleteMentionByTriple(entity_id: number, source_id: number, surface_form: string): void {
+  const db = getDb()
+  db.prepare('DELETE FROM Mention WHERE entity_id = ? AND source_id = ? AND surface_form = ?').run(entity_id, source_id, surface_form)
+}
+
 // ─── Claims ───────────────────────────────────────────────────────────────────
+
+export function getClaimById(id: number): Claim | null {
+  const db = getDb()
+  const row = db.prepare('SELECT * FROM Claim WHERE id = ?').get(id) as Record<string, unknown> | null
+  return row ? mapClaim(row) : null
+}
 
 export function createClaim(data: {
   subject_entity_id?: number | null
@@ -565,7 +659,7 @@ export function updateClaim(id: number, data: {
 }): Claim | null {
   const db = getDb()
   const sets: string[] = []
-  const params: unknown[] = []
+  const params: Params = []
   if (data.value !== undefined)            { sets.push('value = ?');            params.push(data.value) }
   if (data.object_entity_id !== undefined) { sets.push('object_entity_id = ?'); params.push(data.object_entity_id) }
   if (data.property !== undefined)         { sets.push('property = ?');         params.push(data.property) }
@@ -588,8 +682,10 @@ export function getUsedProperties(subjectType?: string): Array<{ property: strin
     return db.prepare(`
       SELECT c.property, COUNT(*) as count
       FROM Claim c
-      JOIN Entity e ON e.id = c.subject_entity_id
-      WHERE e.type = ?
+      WHERE c.subject_entity_id IN (
+        SELECT subject_entity_id FROM Claim
+        WHERE property = 'instance_of' AND value = ?
+      )
       GROUP BY c.property
       ORDER BY count DESC, c.property
     `).all(subjectType) as Array<{ property: string; count: number }>
@@ -618,7 +714,7 @@ export interface RelPath {
 
 export interface RelationshipResult {
   paths: RelPath[]
-  entities: Record<number, { id: number; type: string; primary_label: string }>
+  entities: Record<number, { id: number; types: string[]; primary_label: string }>
 }
 
 export function findRelationshipPaths(a: number, b: number): RelationshipResult {
@@ -685,12 +781,17 @@ export function findRelationshipPaths(a: number, b: number): RelationshipResult 
     const idList = [...involved]
     const placeholders = idList.map(() => '?').join(',')
     const rows = db.prepare(`
-      SELECT e.id, e.type,
-        COALESCE((SELECT l.value FROM Label l WHERE l.entity_id = e.id AND l.is_primary = 1 LIMIT 1), '(no label)') as primary_label
+      SELECT e.id,
+        COALESCE((SELECT l.value FROM Label l WHERE l.entity_id = e.id AND l.is_primary = 1 LIMIT 1), '(no label)') as primary_label,
+        (SELECT GROUP_CONCAT(c2.value, ',') FROM (
+           SELECT DISTINCT c2.value FROM Claim c2
+           WHERE c2.subject_entity_id = e.id AND c2.property = 'instance_of' AND c2.value IS NOT NULL
+           ORDER BY c2.value
+         ) c2) as types_csv
       FROM Entity e
       WHERE e.id IN (${placeholders})
-    `).all(...idList) as Array<{ id: number; type: string; primary_label: string }>
-    for (const r of rows) entities[r.id] = r
+    `).all(...idList) as Array<{ id: number; primary_label: string; types_csv: string | null }>
+    for (const r of rows) entities[r.id] = { id: r.id, types: r.types_csv ? r.types_csv.split(',').filter(Boolean) : [], primary_label: r.primary_label }
   }
 
   return { paths, entities }

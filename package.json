@@ -8,7 +8,10 @@
     "dev:client": "vite",
     "migrate": "bun src/server/db/migrate.ts",
     "build": "vite build",
-    "start": "NODE_ENV=production bun src/server/index.ts"
+    "start": "NODE_ENV=production bun src/server/index.ts",
+    "typecheck:client": "tsc --noEmit",
+    "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
     "@types/dompurify": "^3.2.0",

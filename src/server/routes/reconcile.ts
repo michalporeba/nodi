@@ -97,7 +97,7 @@ router.get('/wikidata', async c => {
     const entity = getEntityDetail(parseInt(entityId))
     if (!entity) return c.json({ error: 'Entity not found' }, 404)
     searchTerm = entity.primary_label
-    entityType = entity.type
+    entityType = entity.types[0] ?? undefined
   }
 
   if (!searchTerm) return c.json({ error: 'q or entity_id is required' }, 400)

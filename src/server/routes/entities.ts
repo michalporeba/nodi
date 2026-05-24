@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getEntities, getEntityDetail, createEntity, updateEntity, deleteEntity } from '../db/queries'
+import { getEntities, getEntityDetail, createEntity, updateEntity, deleteEntity, mergeEntities } from '../db/queries'
 import { validate, ValidationError } from '../validation'
 
 const router = new Hono()
@@ -39,7 +39,6 @@ router.patch('/:id', async c => {
   let body: Record<string, unknown>
   try {
     body = validate(await c.req.json(), {
-      type: { type: 'string' },
       primary_label: { type: 'string' },
       language: { type: 'string', nullable: true },
     })
@@ -57,6 +56,18 @@ router.delete('/:id', c => {
   const id = parseInt(c.req.param('id'))
   deleteEntity(id)
   return c.json({ ok: true })
+})
+
+router.post('/:id/merge', async c => {
+  const canonicalId = parseInt(c.req.param('id'))
+  const body = await c.req.json() as { absorbIds?: unknown }
+  if (!Array.isArray(body.absorbIds) || body.absorbIds.length === 0 || !body.absorbIds.every((x: unknown) => typeof x === 'number')) {
+    return c.json({ error: 'absorbIds must be a non-empty array of entity ids' }, 400)
+  }
+  const canonical = getEntityDetail(canonicalId)
+  if (!canonical) return c.json({ error: 'Canonical entity not found' }, 404)
+  const merged = mergeEntities(canonicalId, body.absorbIds as number[])
+  return c.json(merged)
 })
 
 export default router

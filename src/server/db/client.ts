@@ -69,11 +69,43 @@ export function getDb(): Database {
   // Add notable flag to Claim
   try { _db.exec('ALTER TABLE Claim ADD COLUMN notable INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
 
+  // Migrate class membership to instance_of claims (Item 12 Phase A).
+  // For every Entity whose type is set and has no instance_of claim yet, create one.
+  // Idempotent: guarded by the NOT EXISTS check.
+  // Must run BEFORE the Phase F column drop below so the type value is still readable.
+  const entityColsBefore = (_db.prepare("PRAGMA table_info(Entity)").all() as Array<{ name: string }>).map(c => c.name)
+  if (entityColsBefore.includes('type')) {
+    _db.exec(`
+      INSERT INTO Claim (subject_entity_id, property, value, notable)
+      SELECT e.id, 'instance_of', e.type, 0
+      FROM Entity e
+      WHERE e.type IS NOT NULL AND e.type != ''
+        AND NOT EXISTS (
+          SELECT 1 FROM Claim c
+          WHERE c.subject_entity_id = e.id AND c.property = 'instance_of'
+        )
+    `)
+
+    // Phase F: drop Entity.type column (class membership now lives in instance_of claims).
+    // PRAGMA foreign_keys must be outside the transaction (SQLite requirement).
+    _db.exec('PRAGMA foreign_keys=OFF')
+    _db.transaction(() => {
+      _db!.exec(`CREATE TABLE Entity_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`)
+      _db!.exec('INSERT INTO Entity_new SELECT id, created_at FROM Entity')
+      _db!.exec('DROP TABLE Entity')
+      _db!.exec('ALTER TABLE Entity_new RENAME TO Entity')
+    })()
+    _db.exec('PRAGMA foreign_keys=ON')
+  }
+
   // Migrate Mention uniqueness from (entity_id, source_id) to (entity_id, source_id, surface_form)
   const mentionIndices = _db.prepare("PRAGMA index_list(Mention)").all() as Array<{ name: string; unique: number }>
   const hasThreeColUniq = mentionIndices.some(idx => {
     if (!idx.unique) return false
-    const cols = (_db!.prepare(`PRAGMA index_info(${idx.name})`).all() as Array<{ name: string }>).map(c => c.name)
+    const cols = (_db!.prepare(`PRAGMA index_info("${idx.name}")`).all() as Array<{ name: string }>).map(c => c.name)
     return cols.length === 3 && cols.includes('entity_id') && cols.includes('source_id') && cols.includes('surface_form')
   })
   if (!hasThreeColUniq) {

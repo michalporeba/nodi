@@ -60,7 +60,9 @@ The boundary check is **lenient on both sides**: a match is accepted if the char
 
 Plain `\b` fails when the surface form starts or ends with a non-word character — e.g. `"Megan Harries (née Owen)"` ends with `)`, and the following space is also a non-word character, so `\b` would not match. The lenient check accepts this.
 
-The client-side highlight renderer **must** use the same boundary semantics as the server (a lookbehind/lookahead for `\W|^` and `\W|$` rather than `\b`). Otherwise matches reported by the engine will silently fail to render.
+The client-side highlight renderer uses server-supplied `positions` (character offsets in the server's plaintext) to identify which occurrence of a surface form to highlight. To resolve a position to a DOM location, the client builds a plaintext→DOM map (`buildDomMap` in `SourceContent.tsx`) that mirrors `extractPlainText`: each element open/close contributes one space, then whitespace is collapsed. This ensures that `positions[i].start` maps to the same visible character in the DOM as it does in the server's plaintext.
+
+The regex boundary semantics (`\W|^` / `\W|$` lookbehind/lookahead) are retained only for the pending-text highlight (all occurrences of a not-yet-confirmed selection). Server-matched highlights use exact positions and do not depend on boundary regex.
 
 ---
 

@@ -6,7 +6,8 @@ import { getCuratedProperties, useOntology, type PropertyShape } from '../data/o
 interface Props {
   value: string
   onChange: (v: string) => void
-  subjectType?: EntityType
+  subjectType?: EntityType     // deprecated: prefer subjectTypes
+  subjectTypes?: string[]      // union-of-types filter; overrides subjectType when present
   placeholder?: string
   autoFocus?: boolean
   disabled?: boolean
@@ -22,17 +23,35 @@ type Suggestion = {
 }
 
 export function PropertyPicker({
-  value, onChange, subjectType, placeholder, autoFocus, disabled, onEnter, style,
+  value, onChange, subjectType, subjectTypes, placeholder, autoFocus, disabled, onEnter, style,
 }: Props) {
   const [used, setUsed] = useState<Array<{ property: string; count: number }>>([])
   const [open, setOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
   const ontology = useOntology()
+  const effectiveType = subjectTypes ?? subjectType
 
   useEffect(() => {
-    api.properties.used(subjectType).then(setUsed).catch(() => setUsed([]))
-  }, [subjectType])
+    const types = Array.isArray(effectiveType) ? effectiveType : effectiveType ? [effectiveType] : []
+    if (types.length === 0) {
+      api.properties.used().then(setUsed).catch(() => setUsed([]))
+      return
+    }
+    Promise.all(types.map(t => api.properties.used(t)))
+      .then(results => {
+        const merged = new Map<string, { property: string; count: number }>()
+        for (const list of results) {
+          for (const item of list) {
+            const existing = merged.get(item.property)
+            if (existing) { existing.count += item.count }
+            else { merged.set(item.property, { ...item }) }
+          }
+        }
+        setUsed([...merged.values()])
+      })
+      .catch(() => setUsed([]))
+  }, [effectiveType])
 
   useEffect(() => {
     if (!open) return
@@ -47,7 +66,7 @@ export function PropertyPicker({
     const q = value.trim().toLowerCase()
     const out = new Map<string, Suggestion>()
 
-    for (const p of getCuratedProperties(ontology, subjectType)) {
+    for (const p of getCuratedProperties(ontology, effectiveType)) {
       if (!q || p.key.toLowerCase().includes(q)) {
         out.set(p.key, { key: p.key, source: 'curated', def: p })
       }
@@ -59,7 +78,7 @@ export function PropertyPicker({
     }
 
     return [...out.values()].slice(0, 12)
-  }, [value, used, subjectType, ontology])
+  }, [value, used, effectiveType, ontology])
 
   const exactMatch = suggestions.some(s => s.key === value.trim())
   const showCustom = value.trim().length > 0 && !exactMatch

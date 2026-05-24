@@ -71,6 +71,12 @@ mark.highlight-ambiguous {
   cursor: pointer;
   padding: 0 1px;
 }
+mark.highlight-pending {
+  background: var(--highlight-selected);
+  border-bottom: 2px solid var(--highlight-selected-border);
+  border-radius: 2px;
+  padding: 0 1px;
+}
 mark.highlight-confirmed:hover,
 mark.highlight-suggested:hover,
 mark.highlight-ambiguous:hover {

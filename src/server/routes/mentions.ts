@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { createMention, deleteMention } from '../db/queries'
+import { createMention, deleteMention, deleteMentionByTriple } from '../db/queries'
 import { validate, ValidationError } from '../validation'
 
 const router = new Hono()
@@ -18,6 +18,15 @@ router.post('/', async c => {
   }
   const mention = createMention(body)
   return c.json(mention, 201)
+})
+
+router.delete('/', c => {
+  const entity_id = parseInt(c.req.query('entity_id') ?? '')
+  const source_id = parseInt(c.req.query('source_id') ?? '')
+  const surface_form = c.req.query('surface_form') ?? ''
+  if (!entity_id || !source_id || !surface_form) return c.json({ error: 'entity_id, source_id, surface_form required' }, 400)
+  deleteMentionByTriple(entity_id, source_id, surface_form)
+  return c.json({ ok: true })
 })
 
 router.delete('/:id', c => {

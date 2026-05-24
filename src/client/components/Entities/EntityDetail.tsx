@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../../api/client'
-import type { EntityDetail as EntityDetailType, EntityType, WikidataCandidate } from '../../api/types'
-import { ENTITY_TYPES } from '../../api/types'
+import type { EntityDetail as EntityDetailType, Entity, WikidataCandidate } from '../../api/types'
 import { PropertyPicker } from '../PropertyPicker'
 import { ClaimRow } from '../ClaimRow'
+import { useOntology, getPropertyShape } from '../../data/ontology'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -106,6 +106,35 @@ function WikidataReconcile({ entity, onUpdated }: { entity: EntityDetailType; on
   )
 }
 
+function TypeAdder({ classes, currentTypes, onAdd }: { classes: string[]; currentTypes: string[]; onAdd: (t: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const available = classes.filter(c => !currentTypes.includes(c))
+  if (available.length === 0) return null
+  return (
+    <span style={{ position: 'relative' }}>
+      <button
+        className="btn btn-ghost btn-sm"
+        style={{ fontSize: 11, padding: '1px 6px' }}
+        onClick={() => setOpen(o => !o)}
+        title="Add class"
+      >+ type</button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 200, background: 'var(--panel-bg, #fff)', border: '1px solid var(--content-border)', borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', minWidth: 140 }}>
+          {available.map(c => (
+            <div
+              key={c}
+              style={{ padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}
+              onMouseOver={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.08)')}
+              onMouseOut={e => (e.currentTarget.style.background = '')}
+              onClick={() => { onAdd(c); setOpen(false) }}
+            >{c}</div>
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
 export function EntityDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -113,13 +142,24 @@ export function EntityDetail() {
 
   const [entity, setEntity] = useState<EntityDetailType | null>(null)
   const [loading, setLoading] = useState(true)
-  const [editingType, setEditingType] = useState(false)
   const [addingClaim, setAddingClaim] = useState(false)
   const [newClaim, setNewClaim] = useState({ property: '', value: '' })
+  const [claimEntityId, setClaimEntityId] = useState<number | null>(null)
+  const [claimEntitySearch, setClaimEntitySearch] = useState('')
+  const [claimEntityResults, setClaimEntityResults] = useState<Entity[]>([])
+  const [claimModeOverride, setClaimModeOverride] = useState<'text' | 'entity' | null>(null)
   const [addingLabel, setAddingLabel] = useState(false)
   const [newLabel, setNewLabel] = useState({ value: '', language: 'en' })
   const [addingEid, setAddingEid] = useState(false)
   const [newEid, setNewEid] = useState({ system: '', value: '', url: '' })
+  const ontology = useOntology()
+
+  const claimPropShape = getPropertyShape(ontology, newClaim.property.trim())
+  const defaultClaimMode: 'text' | 'entity' =
+    claimPropShape?.value_type === 'entity' ? 'entity'
+    : claimPropShape?.value_type === 'both' && (claimPropShape.class_range || claimPropShape.default_entity_type) ? 'entity'
+    : 'text'
+  const claimMode = claimModeOverride ?? defaultClaimMode
 
   useEffect(() => {
     if (!entityId) return
@@ -127,19 +167,21 @@ export function EntityDetail() {
     api.entities.get(entityId).then(setEntity).finally(() => setLoading(false))
   }, [entityId])
 
+  useEffect(() => {
+    setClaimEntityId(null); setClaimEntitySearch(''); setClaimEntityResults([]); setClaimModeOverride(null)
+  }, [newClaim.property])
+
+  useEffect(() => {
+    if (claimMode !== 'entity' || !claimEntitySearch.trim()) { setClaimEntityResults([]); return }
+    const t = setTimeout(() => { api.entities.list({ q: claimEntitySearch }).then(setClaimEntityResults) }, 250)
+    return () => clearTimeout(t)
+  }, [claimEntitySearch, claimMode])
+
   async function handleDelete() {
     if (!entity) return
     if (!window.confirm(`Delete "${entity.primary_label}" and all associated data?`)) return
     await api.entities.delete(entity.id)
     navigate('/entities')
-  }
-
-  async function handleTypeChange(type: EntityType) {
-    if (!entity) return
-    await api.entities.update(entity.id, { type })
-    const updated = await api.entities.get(entity.id)
-    setEntity(updated)
-    setEditingType(false)
   }
 
   async function handleAddLabel(e: React.FormEvent) {
@@ -188,11 +230,18 @@ export function EntityDetail() {
 
   async function handleAddClaim(e: React.FormEvent) {
     e.preventDefault()
-    if (!entity || !newClaim.property || !newClaim.value) return
-    await api.claims.create({ subject_entity_id: entity.id, property: newClaim.property, value: newClaim.value })
+    if (!entity || !newClaim.property) return
+    if (claimMode === 'entity') {
+      if (!claimEntityId) return
+      await api.claims.create({ subject_entity_id: entity.id, property: newClaim.property, object_entity_id: claimEntityId })
+    } else {
+      if (!newClaim.value) return
+      await api.claims.create({ subject_entity_id: entity.id, property: newClaim.property, value: newClaim.value })
+    }
     const updated = await api.entities.get(entity.id)
     setEntity(updated)
     setNewClaim({ property: '', value: '' })
+    setClaimEntityId(null); setClaimEntitySearch(''); setClaimEntityResults([]); setClaimModeOverride(null)
     setAddingClaim(false)
   }
 
@@ -203,11 +252,28 @@ export function EntityDetail() {
     setEntity(updated)
   }
 
+  async function handleAddType(typeName: string) {
+    if (!entity || !typeName) return
+    await api.claims.create({ subject_entity_id: entity.id, property: 'instance_of', value: typeName })
+    const updated = await api.entities.get(entity.id)
+    setEntity(updated)
+  }
+
+  async function handleRemoveType(typeName: string) {
+    if (!entity) return
+    const claim = entity.claims.find(c => c.property === 'instance_of' && c.value === typeName)
+    if (!claim) return
+    await api.claims.delete(claim.id)
+    const updated = await api.entities.get(entity.id)
+    setEntity(updated)
+  }
+
   if (loading) return <div className="loading">Loading…</div>
   if (!entity) return <div className="empty-state"><p>Entity not found</p><button className="btn btn-secondary" onClick={() => navigate('/entities')}>Back</button></div>
 
-  // Group claims by property
+  // Group claims by property; hide instance_of (surfaced as type chips instead)
   const claimsByProp = entity.claims.reduce<Record<string, typeof entity.claims>>((acc, c) => {
+    if (c.property === 'instance_of') return acc
     if (!acc[c.property]) acc[c.property] = []
     acc[c.property].push(c)
     return acc
@@ -221,22 +287,19 @@ export function EntityDetail() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <h1 style={{ fontSize: 20 }}>{entity.primary_label}</h1>
-              {editingType ? (
-                <select
-                  className="select"
-                  style={{ fontSize: 13, padding: '4px 8px' }}
-                  value={entity.type}
-                  onChange={e => handleTypeChange(e.target.value as EntityType)}
-                  autoFocus
-                  onBlur={() => setEditingType(false)}
-                >
-                  {ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              ) : (
-                <span className={`badge badge-${entity.type}`} style={{ cursor: 'pointer' }} onClick={() => setEditingType(true)} title="Click to change type">
-                  {entity.type}
+              <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {entity.types.map(t => (
+                    <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      <span className={`badge badge-${t}`}>{t}</span>
+                      <button
+                        onClick={() => handleRemoveType(t)}
+                        style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0 2px', lineHeight: 1, fontSize: 11 }}
+                        title={`Remove ${t} class`}
+                      >×</button>
+                    </span>
+                  ))}
+                  <TypeAdder classes={ontology?.classes ?? []} currentTypes={entity.types} onAdd={handleAddType} />
                 </span>
-              )}
             </div>
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
               {entity.mention_count} mentions · {entity.claim_count} claims
@@ -337,7 +400,7 @@ export function EntityDetail() {
                   <ClaimRow
                     key={c.id}
                     claim={c}
-                    subjectType={entity.type}
+                    subjectTypes={entity.types}
                     hideProperty
                     onChanged={async () => { const u = await api.entities.get(entity.id); setEntity(u) }}
                     onDeleted={() => handleDeleteClaim(c.id)}
@@ -350,17 +413,54 @@ export function EntityDetail() {
             )}
           </div>
           {addingClaim ? (
-            <form onSubmit={handleAddClaim} style={{ display: 'flex', gap: 8 }}>
-              <PropertyPicker
-                value={newClaim.property}
-                onChange={v => setNewClaim(p => ({ ...p, property: v }))}
-                subjectType={entity.type}
-                placeholder="Property (e.g. date_of_birth)"
-                autoFocus
-              />
-              <input className="input" placeholder="Value" value={newClaim.value} onChange={e => setNewClaim(p => ({ ...p, value: e.target.value }))} style={{ flex: 1 }} />
-              <button className="btn btn-primary btn-sm" type="submit">Save</button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setAddingClaim(false)}>Cancel</button>
+            <form onSubmit={handleAddClaim} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <PropertyPicker
+                    value={newClaim.property}
+                    onChange={v => setNewClaim(p => ({ ...p, property: v }))}
+                    subjectTypes={entity.types}
+                    placeholder="Property (e.g. date_of_birth)"
+                    autoFocus
+                  />
+                  {claimPropShape?.value_type === 'both' && (
+                    <div style={{ display: 'flex', gap: 4, fontSize: 11 }}>
+                      <button type="button" className={`btn btn-sm ${claimMode === 'entity' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setClaimModeOverride('entity')}>Entity</button>
+                      <button type="button" className={`btn btn-sm ${claimMode === 'text' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setClaimModeOverride('text')}>Text</button>
+                    </div>
+                  )}
+                  {claimMode === 'entity' ? (
+                    claimEntityId ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                        <span style={{ background: 'rgba(99,102,241,0.1)', borderRadius: 8, padding: '2px 10px' }}>
+                          {claimEntitySearch || `#${claimEntityId}`}
+                        </span>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setClaimEntityId(null); setClaimEntitySearch('') }}>✕</button>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative' }}>
+                        <input className="input" placeholder={`Search ${claimPropShape?.class_range ?? 'entity'}…`} value={claimEntitySearch} onChange={e => setClaimEntitySearch(e.target.value)} style={{ width: '100%' }} />
+                        {claimEntityResults.length > 0 && (
+                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, maxHeight: 120, overflowY: 'auto', border: '1px solid var(--content-border)', borderRadius: 4, background: 'white' }}>
+                            {claimEntityResults.slice(0, 5).map(e => (
+                              <div key={e.id} className="entity-option" onClick={() => { setClaimEntityId(e.id); setClaimEntitySearch(e.primary_label); setClaimEntityResults([]) }}>
+                                <div className="entity-option-label">{e.primary_label}</div>
+                                <div className="entity-option-meta">{e.types.join(', ')}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  ) : (
+                    <input className="input" placeholder="Value" value={newClaim.value} onChange={e => setNewClaim(p => ({ ...p, value: e.target.value }))} />
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 4, paddingTop: 2 }}>
+                  <button className="btn btn-primary btn-sm" type="submit">Save</button>
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => setAddingClaim(false)}>Cancel</button>
+                </div>
+              </div>
             </form>
           ) : (
             <button className="btn btn-secondary btn-sm" onClick={() => setAddingClaim(true)}>+ Add claim</button>

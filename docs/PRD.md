@@ -1,6 +1,6 @@
 # Product Requirements Document: nodi
 
-Last updated: 2026-05-18
+Last updated: 2026-05-24
 
 ## Purpose
 
@@ -302,6 +302,39 @@ Requirements:
 - Multiple entities may share the same label.
 - Adding a label should affect future source matching without modifying source
   content or migrating stored annotation positions.
+- An entity may have zero, one, or many class memberships. Class membership is
+  recorded as `instance_of` claims on the entity, not as a fixed column. Badge
+  and chip display renders all class names alphabetically; no single class is
+  treated as primary.
+- An entity with multiple class memberships is a single entity row. Labels,
+  mentions, and claims all belong to that entity regardless of which class
+  membership is being inspected.
+
+### Entity Merge
+
+When two entity rows share labels or represent the same real-world thing, the
+user must be able to merge them into a single canonical entity. The canonical
+entity absorbs all labels, mentions, external IDs, and claims (including
+`instance_of` claims) from the absorbed rows. The absorbed rows are then
+deleted.
+
+Requirements:
+
+- A merge endpoint accepts a canonical entity ID and one or more entity IDs to
+  absorb into it. The merge is performed in a single transaction.
+- All foreign-key references in claims, mentions, sources, external IDs, and
+  labels are updated to point at the canonical entity.
+- Rows that become identical after the merge (for example two `instance_of`
+  claims with the same value) are deduplicated rather than duplicated.
+- The UI must provide an affordance for the user to initiate a merge when two
+  entity rows appear in the same `LinkedSwitcher` context or are otherwise
+  identified as duplicates.
+- The canonical entity is chosen by the user; the product must not automatically
+  decide which row wins.
+- After a merge, all prior mentions and claims that referenced the absorbed rows
+  must resolve through the canonical entity without data loss.
+- Merge does not require that the involved entities share a Wikidata identifier
+  or any external ID.
 
 ### Mentions
 
@@ -351,8 +384,16 @@ Requirements:
 - Longer overlapping matches take priority over shorter contained matches.
 - Boundary matching is lenient: the characters around the match must be
   non-word characters or source-text edges.
+- The server computes plaintext character positions for each match occurrence and
+  returns them to the client. The client must use those server-computed positions
+  to place highlights, rather than re-scanning the rendered DOM by surface-form
+  regex, so that each occurrence of a repeated surface form is addressable
+  independently.
 - Client highlighting must mirror server matching closely enough that returned
   matches can be acted on reliably.
+- Each rendered highlight must carry a stable identifier for its specific
+  occurrence (position index or plaintext offset) so that per-occurrence actions
+  such as dismissal or jump-to-mention are possible.
 - Match status is resolved as `confirmed`, `suggested`, or `ambiguous` by
   comparing candidate entities with confirmed mentions for the same source and
   surface form.

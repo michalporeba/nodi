@@ -83,9 +83,10 @@ export function EntityList() {
     return () => clearTimeout(timer)
   }, [load, search])
 
-  // Count by type
+  // Count by type (each type in entity.types contributes once)
   const typeCounts = entities.reduce<Record<string, number>>((acc, e) => {
-    acc[e.type] = (acc[e.type] ?? 0) + 1
+    const types = e.types
+    for (const t of types) acc[t] = (acc[t] ?? 0) + 1
     return acc
   }, {})
 
@@ -139,7 +140,9 @@ export function EntityList() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                     <span style={{ fontWeight: 600, fontSize: 14 }}>{entity.primary_label}</span>
-                    <span className={`badge badge-${entity.type}`}>{entity.type}</span>
+                    {entity.types.map(t => (
+                      <span key={t} className={`badge badge-${t}`}>{t}</span>
+                    ))}
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 10 }}>
                     <span>{entity.mention_count} mention{entity.mention_count !== 1 ? 's' : ''}</span>

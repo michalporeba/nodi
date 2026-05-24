@@ -61,9 +61,12 @@ export function useOntology(): Ontology | null {
   return state
 }
 
-export function getCuratedProperties(ont: Ontology | null, subjectType?: EntityType): PropertyShape[] {
+export function getCuratedProperties(ont: Ontology | null, subjectType?: EntityType | string[]): PropertyShape[] {
   if (!ont) return []
-  if (!subjectType) return ont.properties
+  if (!subjectType || (Array.isArray(subjectType) && subjectType.length === 0)) return ont.properties
+  if (Array.isArray(subjectType)) {
+    return ont.properties.filter(p => subjectType.some(t => p.applies_to.includes(t)))
+  }
   return ont.properties.filter(p => p.applies_to.includes(subjectType))
 }
 

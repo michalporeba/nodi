@@ -9,6 +9,7 @@ type Rule<T> = {
   type: 'string' | 'number' | 'boolean'
   required?: boolean
   nullable?: boolean
+  enum?: string[]
 }
 
 type Schema = Record<string, Rule<unknown>>
@@ -38,9 +39,21 @@ export function validate<T extends Record<string, unknown>>(body: unknown, schem
 
     if (typeof val !== rule.type) {
       errors[field] = `${field} must be a ${rule.type}`
+      continue
+    }
+
+    if (rule.enum && !rule.enum.includes(val as string)) {
+      errors[field] = `${field} must be one of: ${rule.enum.join(', ')}`
     }
   }
 
   if (Object.keys(errors).length > 0) throw new ValidationError(errors)
   return obj as T
+}
+
+export function validateOneOf(obj: Record<string, unknown>, fields: string[]): string | null {
+  const present = fields.filter(f => obj[f] != null && obj[f] !== '')
+  if (present.length === 1) return null
+  if (present.length === 0) return `Exactly one of [${fields.join(', ')}] is required`
+  return `Provide exactly one of [${fields.join(', ')}], not both: ${present.join(', ')}`
 }

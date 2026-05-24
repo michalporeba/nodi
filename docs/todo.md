@@ -5,36 +5,25 @@
 The items interlock. Pick one of the orderings below to avoid rework.
 
 **Tier 1 — foundation (do first, independently):**
-- **Item 1** (typecheck). Reduces the risk of every later change. The
-  known-failure list inside the item is a snapshot; regenerate it via a
-  fresh `tsc --noEmit` run before starting, since later items may have
-  changed which files fail.
-- **Item 2** (queued source status). Independent. Required for item 6.
+- ~~**Item 1** (typecheck).~~ ✓ done
+- ~~**Item 2** (queued source status).~~ ✓ done
 
 **Tier 2 — server/contract changes (after item 1, mostly independent):**
-- **Item 3** (ontology value-kind in add-claim forms).
-- **Item 4** (client uses server match positions).
-- **Item 5** (API validation gaps).
+- ~~**Item 3** (ontology value-kind in add-claim forms).~~ ✓ done
+- ~~**Item 4** (client uses server match positions).~~ ✓ done
+- ~~**Item 5** (API validation gaps).~~ ✓ done
 
 **Tier 3 — source-viewer chrome and behaviour:**
-- **Item 11** (template name on pill). Small and isolated. **Must land
-  before item 12** because item 12 reshapes the pill data model.
-- **Item 7** (hide redundant page-topic header). Touches `TopicSection`.
-- **Item 8** (trim right-panel chrome). Also touches `TopicSection`;
-  must follow item 7 or be coordinated with it (they share line
-  references and both modify the same compact-view JSX). Consider
-  bundling them into one PR.
-- **Item 9** (unconfirm a mention). Depends on item 7 — its acceptance
-  criterion references "state 3 from item 7".
-- **Item 10** (pending-selection highlight). Independent.
-- **Item 6** (explicit bulk-action confirmation). Depends on item 2.
+- ~~**Item 11** (template name on pill).~~ ✓ done
+- ~~**Item 7** (hide redundant page-topic header).~~ ✓ done
+- ~~**Item 8** (trim right-panel chrome).~~ ✓ done
+- ~~**Item 9** (unconfirm a mention).~~ ✓ done
+- ~~**Item 10** (pending-selection highlight).~~ ✓ done
+- ~~**Item 6** (explicit bulk-action confirmation).~~ ✓ done
 
 **Tier 4 — model refactor:**
-- **Item 12** (types as claims). Largest item; touches schema, server,
-  client, exports. Depends on items 7, 8, 11 (it edits the same UI
-  surfaces they restructure). Do this LAST among the listed items.
-- **Item 13** (merge duplicate entities). Follows item 12 — the
-  refactor in item 12 makes merge possible; item 13 performs it.
+- ~~**Item 12** (types as claims).~~ ✓ done (all phases including column drop)
+- ~~**Item 13** (merge duplicate entities).~~ ✓ done
 
 **Convention on file:line references:**
 

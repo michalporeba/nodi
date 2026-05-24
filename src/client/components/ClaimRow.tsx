@@ -8,6 +8,7 @@ import { useOntology, getPropertyShape } from '../data/ontology'
 interface Props {
   claim: Claim
   subjectType?: EntityType
+  subjectTypes?: string[]
   onChanged: () => void
   onDeleted: () => void
   hideProperty?: boolean
@@ -23,7 +24,7 @@ function useClaimWarnings(claim: Claim): string[] {
   if (claim.object_entity_id !== null) {
     if (shape.value_type === 'text') {
       warnings.push(`"${claim.property}" expects text, not an entity`)
-    } else if (shape.class_range && claim.object_type && claim.object_type !== shape.class_range) {
+    } else if (shape.class_range && claim.object_type && !claim.object_type.split(',').includes(shape.class_range)) {
       warnings.push(`"${claim.property}" expects ${shape.class_range}, got ${claim.object_type}`)
     }
   } else if (claim.value !== null && shape.value_type === 'entity') {
@@ -32,7 +33,7 @@ function useClaimWarnings(claim: Claim): string[] {
   return warnings
 }
 
-export function ClaimRow({ claim, subjectType, onChanged, onDeleted, hideProperty }: Props) {
+export function ClaimRow({ claim, subjectType, subjectTypes, onChanged, onDeleted, hideProperty }: Props) {
   const [editing, setEditing] = useState<EditMode>(null)
   const [promotingSubject, setPromotingSubject] = useState(false)
   const isEntity = claim.object_entity_id !== null
@@ -111,6 +112,7 @@ export function ClaimRow({ claim, subjectType, onChanged, onDeleted, hidePropert
           <PropertyEditor
             claim={claim}
             subjectType={subjectType}
+            subjectTypes={subjectTypes}
             onDone={() => { setEditing(null); onChanged() }}
             onCancel={() => setEditing(null)}
           />
@@ -151,9 +153,10 @@ export function ClaimRow({ claim, subjectType, onChanged, onDeleted, hidePropert
   )
 }
 
-function PropertyEditor({ claim, subjectType, onDone, onCancel }: {
+function PropertyEditor({ claim, subjectType, subjectTypes, onDone, onCancel }: {
   claim: Claim
   subjectType?: EntityType
+  subjectTypes?: string[]
   onDone: () => void
   onCancel: () => void
 }) {
@@ -177,6 +180,7 @@ function PropertyEditor({ claim, subjectType, onDone, onCancel }: {
           value={property}
           onChange={setProperty}
           subjectType={subjectType}
+          subjectTypes={subjectTypes}
           autoFocus
           disabled={busy}
           onEnter={save}
@@ -288,7 +292,7 @@ function TextClaimEditor({ claim, onDone, onCancel }: {
                 >
                   <div>
                     <div className="entity-option-label">{e.primary_label}</div>
-                    <div className="entity-option-meta">{e.type}</div>
+                    <div className="entity-option-meta">{e.types.join(', ')}</div>
                   </div>
                 </div>
               ))}
@@ -412,7 +416,7 @@ function EntityClaimEditor({ claim, objectLabel, onDone, onCancel }: {
                 >
                   <div>
                     <div className="entity-option-label">{e.primary_label}</div>
-                    <div className="entity-option-meta">{e.type}</div>
+                    <div className="entity-option-meta">{e.types.join(', ')}</div>
                   </div>
                 </div>
               ))}
@@ -465,7 +469,7 @@ function SubjectPromoter({ claim, onDone, onCancel }: { claim: Claim; onDone: ()
               style={{ cursor: busy ? 'wait' : 'pointer', fontSize: 11 }}
             >
               <div className="entity-option-label">{e.primary_label}</div>
-              <div className="entity-option-meta">{e.type}</div>
+              <div className="entity-option-meta">{e.types.join(', ')}</div>
             </div>
           ))}
         </div>

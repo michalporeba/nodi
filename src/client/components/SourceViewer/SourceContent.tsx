@@ -5,6 +5,7 @@ import type { Match } from '../../api/types'
 interface Props {
   html: string
   matches: Match[]
+  pendingText?: string
   onMatchClick: (match: Match, x: number, y: number) => void
   onTextSelect: (text: string, x: number, y: number, linkedUrl?: string) => void
 }
@@ -23,9 +24,9 @@ function shouldSkipNode(node: Text): boolean {
   return false
 }
 
+// Used only for pending-text (no server positions available). Scans all
+// occurrences of surfaceForm by regex, mirroring server boundary semantics.
 function highlightText(container: HTMLElement, surfaceForm: string, className: string, dataAttrs: Record<string, string>) {
-  // Match the server engine's boundary semantics: outer chars must be non-word (or string edges).
-  // Plain \b fails when the surface form ends/starts with a non-word char (e.g. "Owen)").
   const regex = new RegExp(`(?<=^|\\W)${escapeRegex(surfaceForm)}(?=\\W|$)`, 'gi')
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
   const nodesToProcess: Array<{ node: Text; matches: RegExpExecArray[] }> = []
@@ -62,6 +63,115 @@ function highlightText(container: HTMLElement, surfaceForm: string, className: s
     node.parentNode!.replaceChild(frag, node)
   }
 }
+
+// ─── Position-based highlight engine ─────────────────────────────────────────
+
+type PtChar = { node: Text; nodeOffset: number }
+
+// Mirrors server extractPlainText: each element open/close contributes one
+// space, text whitespace is collapsed. Returns an array where index i is the
+// DOM location of the character at plaintext offset i, or null for spaces.
+// Must be called before any marks are applied to the container.
+function buildDomMap(container: HTMLElement): Array<PtChar | null> {
+  const map: Array<PtChar | null> = []
+  let lastWasSpace = true
+
+  function addSpace() {
+    if (!lastWasSpace) { map.push(null); lastWasSpace = true }
+  }
+
+  function walk(node: Node): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const t = node as Text
+      const text = t.textContent ?? ''
+      for (let i = 0; i < text.length; i++) {
+        if (/\s/.test(text[i])) { addSpace() }
+        else { map.push({ node: t, nodeOffset: i }); lastWasSpace = false }
+      }
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = (node as Element).tagName.toLowerCase()
+      if (tag === 'script' || tag === 'style') return
+      addSpace()
+      for (const child of (node as Element).childNodes) walk(child)
+      addSpace()
+    }
+  }
+
+  for (const child of container.childNodes) walk(child)
+  return map
+}
+
+interface MarkHit {
+  nodeStart: number
+  nodeEnd: number
+  className: string
+  dataAttrs: Record<string, string>
+}
+
+// Apply highlights for all matches using the server-supplied positions.
+// Builds the DOM map once, then processes every text node in a single pass
+// so replacements do not invalidate subsequent lookups.
+function applyMatchHighlights(container: HTMLElement, matches: Match[]): void {
+  const domMap = buildDomMap(container)
+  const byNode = new Map<Text, MarkHit[]>()
+
+  const prioritized = [...matches].sort((a, b) => {
+    const order = { confirmed: 0, ambiguous: 1, suggested: 2 }
+    return order[a.status] - order[b.status]
+  })
+
+  for (const match of prioritized) {
+    const className = `highlight-${match.status}`
+    const baseData: Record<string, string> = {
+      entityIds: match.entity_ids.join(','),
+      status: match.status,
+      labelValue: match.label_value,
+      confirmedEntityIds: match.confirmed_entity_ids.join(','),
+      surfaceForm: match.surface_form,
+    }
+
+    for (let pi = 0; pi < match.positions.length; pi++) {
+      const { start, end } = match.positions[pi]
+      const startChar = domMap[start]
+      const endChar = domMap[end - 1]
+      // Skip positions that map to whitespace or span element boundaries
+      if (!startChar || !endChar || startChar.node !== endChar.node) continue
+
+      const node = startChar.node
+      const hits = byNode.get(node) ?? []
+      hits.push({
+        nodeStart: startChar.nodeOffset,
+        nodeEnd: endChar.nodeOffset + 1,
+        className,
+        dataAttrs: { ...baseData, occurrenceIndex: String(pi), positionStart: String(start) },
+      })
+      byNode.set(node, hits)
+    }
+  }
+
+  for (const [node, hits] of byNode) {
+    const text = node.textContent ?? ''
+    hits.sort((a, b) => a.nodeStart - b.nodeStart)
+
+    const frag = document.createDocumentFragment()
+    let lastIndex = 0
+
+    for (const hit of hits) {
+      if (hit.nodeStart < lastIndex) continue // skip overlap (server guarantees none, guard only)
+      if (hit.nodeStart > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, hit.nodeStart)))
+      const mark = document.createElement('mark')
+      mark.className = hit.className
+      mark.textContent = text.slice(hit.nodeStart, hit.nodeEnd)
+      for (const [k, v] of Object.entries(hit.dataAttrs)) mark.dataset[k] = v
+      frag.appendChild(mark)
+      lastIndex = hit.nodeEnd
+    }
+
+    if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)))
+    node.parentNode!.replaceChild(frag, node)
+  }
+}
+
 
 // Unicode-aware word character (handles é, ñ, accented Latin, etc.)
 const WORD_CHAR = /[\p{L}\p{N}_]/u
@@ -166,7 +276,7 @@ function setSelectionRange(range: Range): void {
   sel.addRange(range)
 }
 
-export function SourceContent({ html, matches, onMatchClick, onTextSelect }: Props) {
+export function SourceContent({ html, matches, pendingText, onMatchClick, onTextSelect }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const anchorRangeRef = useRef<Range | null>(null)
   // Tracks whether the most recent mousedown moved (drag) versus a click in place.
@@ -189,21 +299,14 @@ export function SourceContent({ html, matches, onMatchClick, onTextSelect }: Pro
 
     el.innerHTML = sanitised
 
-    const sorted = [...matches].sort((a, b) => b.surface_form.length - a.surface_form.length)
+    applyMatchHighlights(el, matches)
 
-    for (const match of sorted) {
-      const className = `highlight-${match.status}`
-      highlightText(el, match.surface_form, className, {
-        entityIds: match.entity_ids.join(','),
-        status: match.status,
-        labelValue: match.label_value,
-        confirmedEntityIds: match.confirmed_entity_ids.join(','),
-        surfaceForm: match.surface_form,
-      })
+    if (pendingText) {
+      highlightText(el, pendingText, 'highlight-pending', {})
     }
 
     el.scrollTop = prevScroll
-  }, [html, matches])
+  }, [html, matches, pendingText])
 
   // Block middle-click and modifier-click navigation on links — React's onClick
   // doesn't fire for aux-button clicks, so we attach this natively.
@@ -282,9 +385,11 @@ export function SourceContent({ html, matches, onMatchClick, onTextSelect }: Pro
       return
     }
 
-    // Plain click → select word under cursor
+    // Plain click → select word under cursor (only if click lands on the word itself)
     const wordRange = getWordRangeAt(e.clientX, e.clientY, root)
     if (!wordRange) return
+    const rect = wordRange.getBoundingClientRect()
+    if (e.clientY < rect.top || e.clientY > rect.bottom || e.clientX < rect.left || e.clientX > rect.right) return
     setSelectionRange(wordRange)
     anchorRangeRef.current = wordRange.cloneRange()
     const text = wordRange.toString()

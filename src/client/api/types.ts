@@ -29,7 +29,7 @@ export interface Source {
 
 export interface Entity {
   id: number
-  type: EntityType
+  types: string[]
   primary_label: string
   mention_count: number
   claim_count: number
@@ -148,5 +148,5 @@ export interface RelPath {
 
 export interface RelationshipResult {
   paths: RelPath[]
-  entities: Record<number, { id: number; type: string; primary_label: string }>
+  entities: Record<number, { id: number; types: string[]; primary_label: string }>
 }

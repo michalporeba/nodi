@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
-import { createClaim, deleteClaim, updateClaim, getEntityById } from '../db/queries'
+import { createClaim, deleteClaim, updateClaim, getClaimById, getEntityById } from '../db/queries'
 import { getOntology } from '../ontology/loader'
-import { validate, ValidationError } from '../validation'
+import { validate, validateOneOf, ValidationError } from '../validation'
 
 const router = new Hono()
 
@@ -15,8 +15,8 @@ function claimWarnings(property: string, objectEntityId: number | null | undefin
       warnings.push(`Property "${property}" expects a text value, not an entity.`)
     } else if (shape.class_range) {
       const entity = getEntityById(objectEntityId)
-      if (entity && entity.type !== shape.class_range) {
-        warnings.push(`Property "${property}" expects type "${shape.class_range}", got "${entity.type}".`)
+      if (entity && !entity.types.includes(shape.class_range)) {
+        warnings.push(`Property "${property}" expects type "${shape.class_range}", got "${entity.types.join(', ')}".`)
       }
     }
   } else if (shape.value_type === 'entity') {
@@ -50,11 +50,10 @@ router.post('/', async c => {
     throw err
   }
   if (!body.subject_entity_id && !body.subject_label) {
-    return c.json({ error: 'Either subject_entity_id or subject_label is required' }, 400)
+    return c.json({ error: 'Either subject_entity_id or subject_label is required', fields: { subject_entity_id: 'required when subject_label absent', subject_label: 'required when subject_entity_id absent' } }, 400)
   }
-  if (!body.value && !body.object_entity_id) {
-    return c.json({ error: 'Either value or object_entity_id is required' }, 400)
-  }
+  const valueErr = validateOneOf(body as Record<string, unknown>, ['value', 'object_entity_id'])
+  if (valueErr) return c.json({ error: valueErr, fields: { value: 'conflicts with object_entity_id', object_entity_id: 'conflicts with value' } }, 400)
   const claim = createClaim(body)
   const warnings = claimWarnings(body.property, body.object_entity_id)
   if (warnings.length) console.warn(`[ontology] claim ${claim.id}:`, warnings.join('; '))
@@ -83,6 +82,14 @@ router.patch('/:id', async c => {
   } catch (err) {
     if (err instanceof ValidationError) return c.json({ error: err.message, fields: err.fields }, 400)
     throw err
+  }
+  const existing = getClaimById(id)
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+  // Validate resulting state: exactly one of value or object_entity_id must be set (or neither for legacy label-only claims).
+  const resultValue = 'value' in body ? body.value : existing.value
+  const resultEntityId = 'object_entity_id' in body ? body.object_entity_id : existing.object_entity_id
+  if (resultValue != null && resultEntityId != null) {
+    return c.json({ error: 'A claim cannot have both value and object_entity_id set', fields: { value: 'conflicts with object_entity_id', object_entity_id: 'conflicts with value' } }, 400)
   }
   const updated = updateClaim(id, body)
   if (!updated) return c.json({ error: 'Not found' }, 404)

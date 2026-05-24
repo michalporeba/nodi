@@ -75,7 +75,7 @@ function SuggestedPopover({ match, pos, sourceId, onConfirmed, onDismiss }: {
           <div>
             <div style={{ fontWeight: 600 }}>{entityData.primary_label}</div>
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-              {entityData.type} · {entityData.mention_count} mentions · {entityData.claim_count} claims
+              {entityData.types.join(', ')} · {entityData.mention_count} mentions · {entityData.claim_count} claims
             </div>
           </div>
         ) : <span style={{ color: '#94a3b8' }}>Unknown entity</span>}
@@ -147,7 +147,7 @@ function AmbiguousPopover({ match, pos, sourceId, onConfirmed, onDismiss }: {
               />
               <div style={{ flex: 1 }}>
                 <div className="entity-option-label">{e.primary_label}</div>
-                <div className="entity-option-meta">{e.type} · {e.mention_count} mentions</div>
+                <div className="entity-option-meta">{(e.types).join(', ')} · {e.mention_count} mentions</div>
               </div>
             </div>
           )
@@ -169,7 +169,7 @@ function AmbiguousPopover({ match, pos, sourceId, onConfirmed, onDismiss }: {
 
 type LinkedEntity =
   | { kind: 'existing'; entity: Entity }
-  | { kind: 'new'; type: string; seed_claims: SeedClaim[] }
+  | { kind: 'new'; type: string; seed_claims: SeedClaim[]; templateName?: string }
 
 function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreated, onDismiss }: {
   text: string
@@ -240,9 +240,9 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
     setLinked(p => [...p, { kind: 'existing', entity: e }])
   }
 
-  function addNew(type: string, seed_claims: SeedClaim[] = []) {
+  function addNew(type: string, seed_claims: SeedClaim[] = [], templateName?: string) {
     if (linked.some(l => l.kind === 'new' && l.type === type)) return
-    setLinked(p => [...p, { kind: 'new', type, seed_claims }])
+    setLinked(p => [...p, { kind: 'new', type, seed_claims, templateName }])
   }
 
   function removeLinked(idx: number) {
@@ -358,7 +358,7 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
             <PropertyPicker
               value={property}
               onChange={setProperty}
-              subjectType={activeEntity?.type}
+              subjectTypes={activeEntity ? (activeEntity.types) : undefined}
               placeholder="e.g. cast_member, date_of_birth"
               autoFocus
             />
@@ -392,8 +392,8 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
               {linked.map((l, i) => (
                 <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.10)', borderRadius: 12, padding: '3px 10px', fontSize: 12 }}>
                   {l.kind === 'existing'
-                    ? <>{l.entity.primary_label} <span style={{ color: '#94a3b8' }}>({l.entity.type})</span></>
-                    : <>+ new <span style={{ color: '#94a3b8' }}>({l.type})</span></>}
+                    ? <>{l.entity.primary_label} <span style={{ color: '#94a3b8' }}>({(l.entity.types).join(', ')})</span></>
+                    : <>+ new <span style={{ color: '#94a3b8' }}>({l.templateName ?? l.type})</span></>}
                   <button
                     onClick={() => removeLinked(i)}
                     style={{ border: 'none', background: 'none', color: '#64748b', cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 14 }}
@@ -417,7 +417,7 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
                   >
                     <div>
                       <div className="entity-option-label">{e.primary_label}</div>
-                      <div className="entity-option-meta">{e.type}{already && ' · added'}</div>
+                      <div className="entity-option-meta">{(e.types).join(', ')}{already && ' · added'}</div>
                     </div>
                   </div>
                 )
@@ -434,7 +434,7 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
                   <button
                     className="btn btn-secondary btn-sm"
                     style={{ padding: '2px 8px', fontSize: 11, opacity: linked.some(l => l.kind === 'new' && l.type === defaultType) ? 0.4 : 1 }}
-                    onClick={() => addNew(defaultType, defaultTemplate?.seed_claims ?? [])}
+                    onClick={() => addNew(defaultType, defaultTemplate?.seed_claims ?? [], defaultTemplate?.name)}
                     disabled={linked.some(l => l.kind === 'new' && l.type === defaultType)}
                   >
                     {roleLabel}
@@ -456,7 +456,7 @@ function ClaimPopover({ text, pos, sourceId, activeEntityId, linkedUrl, onCreate
                       className="btn btn-secondary btn-sm"
                       style={{ padding: '2px 8px', fontSize: 11, opacity: already ? 0.4 : 1 }}
                       title={t.source}
-                      onClick={() => addNew(t.target_class, t.seed_claims)}
+                      onClick={() => addNew(t.target_class, t.seed_claims, t.name)}
                       disabled={already}
                     >
                       {t.name}
@@ -502,12 +502,14 @@ export function SourceViewer() {
   const [linkedSurfaceForm, setLinkedSurfaceForm] = useState<string | null>(null)
   const [relReloadToken, setRelReloadToken] = useState(0)
   const [popover, setPopover] = useState<PopoverState | null>(null)
+  const [topicEditing, setTopicEditing] = useState(false)
+  const [confirmAllPhase, setConfirmAllPhase] = useState<'idle' | 'prompt' | 'confirming' | number>('idle')
 
   useEffect(() => {
     if (!sourceId) return
     setLoading(true)
     Promise.all([
-      api.sources.get(sourceId).then(s => { setSource(s); if (s.status === 'queued') api.sources.update(sourceId, { status: 'active' }).then(setSource) }),
+      api.sources.get(sourceId).then(setSource),
       api.sources.matches(sourceId, activeDomains).then(m => { setMatches(m); setMatchesLoading(false) }),
     ]).finally(() => setLoading(false))
   }, [sourceId])
@@ -518,6 +520,13 @@ export function SourceViewer() {
     setPopover(null)
     setRelReloadToken(t => t + 1)
   }, [sourceId])
+
+  // Only transitions queued → active; never touches done/irrelevant.
+  const ensureSourceActive = useCallback(async () => {
+    if (!source || source.status !== 'queued') return
+    const updated = await api.sources.update(sourceId, { status: 'active' })
+    setSource(updated)
+  }, [source, sourceId])
 
   const handleMatchClick = useCallback((match: Match, x: number, y: number) => {
     const pos = { x, y }
@@ -539,20 +548,22 @@ export function SourceViewer() {
   }, [])
 
   async function handleConfirmAll() {
-    await api.sources.confirmAll(sourceId)
+    setConfirmAllPhase('confirming')
+    const result = await api.sources.confirmAll(sourceId)
+    if (result.confirmed > 0) await ensureSourceActive()
     await reloadMatches()
+    setConfirmAllPhase(result.confirmed)
+    setTimeout(() => setConfirmAllPhase('idle'), 3000)
   }
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
       if (e.key === 'Escape') setPopover(null)
-      if (e.key === 'a') handleConfirmAll()
-      if (e.key === 'd' && source) api.sources.update(sourceId, { status: 'done' }).then(setSource)
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [source, sourceId])
+  }, [])
 
   if (loading) return <div className="loading">Loading source…</div>
   if (!source) return <div className="empty-state"><p>Source not found.</p><button className="btn btn-secondary" onClick={() => navigate('/queue')}>Back to queue</button></div>
@@ -572,11 +583,43 @@ export function SourceViewer() {
           {matchesLoading ? (
             <span style={{ fontSize: 11, color: '#94a3b8' }}>Loading matches…</span>
           ) : (
-            <span style={{ fontSize: 11, color: '#64748b' }}>
-              {matches.filter(m => m.status === 'confirmed').length} confirmed ·{' '}
-              {matches.filter(m => m.status === 'suggested').length} suggested ·{' '}
-              {matches.filter(m => m.status === 'ambiguous').length} ambiguous
-            </span>
+            <>
+              <span style={{ fontSize: 11, color: '#64748b' }}>
+                {matches.filter(m => m.status === 'confirmed').length} confirmed ·{' '}
+                {matches.filter(m => m.status === 'suggested').length} suggested ·{' '}
+                {matches.filter(m => m.status === 'ambiguous').length} ambiguous
+              </span>
+              {confirmAllPhase === 'idle' && matches.some(m => m.status === 'suggested') && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: 11, padding: '3px 8px' }}
+                  onClick={() => setConfirmAllPhase('prompt')}
+                >
+                  ✓ Confirm suggestions
+                </button>
+              )}
+              {confirmAllPhase === 'prompt' && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                  <span style={{ color: '#475569' }}>
+                    Confirm {matches.filter(m => m.status === 'suggested').length} suggestions?
+                  </span>
+                  <button className="btn btn-primary btn-sm" style={{ fontSize: 11, padding: '3px 8px' }} onClick={handleConfirmAll}>
+                    Confirm
+                  </button>
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => setConfirmAllPhase('idle')}>
+                    Cancel
+                  </button>
+                </span>
+              )}
+              {confirmAllPhase === 'confirming' && (
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>Confirming…</span>
+              )}
+              {typeof confirmAllPhase === 'number' && (
+                <span style={{ fontSize: 11, color: '#22c55e' }}>
+                  ✓ Confirmed {confirmAllPhase} suggestions
+                </span>
+              )}
+            </>
           )}
         </div>
 
@@ -584,6 +627,7 @@ export function SourceViewer() {
           <SourceContent
             html={source.content}
             matches={matches}
+            pendingText={popover?.type === 'claim' ? popover.text : undefined}
             onMatchClick={handleMatchClick}
             onTextSelect={handleTextSelect}
           />
@@ -594,14 +638,21 @@ export function SourceViewer() {
 
       {/* Right: context panel */}
       <div style={{ width: 480, minWidth: 480, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--panel-bg)' }}>
-        <TopicSection source={source} onUpdate={setSource} />
+        {(pageTopicId === null || focusedEntityId !== null || topicEditing) && (
+          <TopicSection
+            source={source}
+            onUpdate={async (updated: Source) => { setSource(updated); await ensureSourceActive() }}
+            editing={topicEditing}
+            onEditingChange={setTopicEditing}
+          />
+        )}
         {pageTopicId !== null && focusedEntityId !== null && focusedEntityId !== pageTopicId && (
           <RelationshipConnector
             pageTopicId={pageTopicId}
             activeEntityId={focusedEntityId}
             sourceId={sourceId}
             reloadToken={relReloadToken}
-            onChanged={() => setRelReloadToken(t => t + 1)}
+            onChanged={async () => { await ensureSourceActive(); setRelReloadToken(t => t + 1) }}
             onSwitchActive={id => setFocusedEntityId(id)}
           />
         )}
@@ -612,15 +663,32 @@ export function SourceViewer() {
           linkedSurfaceForm={linkedSurfaceForm}
           onSwitch={id => setFocusedEntityId(id)}
           onClear={() => { setFocusedEntityId(null); setLinkedEntityIds([]); setLinkedSurfaceForm(null) }}
-          onLinkedAdded={id => {
+          onLinkedAdded={async (id: number) => {
             setLinkedEntityIds(prev => prev.includes(id) ? prev : [...prev, id])
+            await ensureSourceActive()
             reloadMatches()
           }}
+          onMerged={(canonicalId: number) => {
+            setFocusedEntityId(canonicalId)
+            setLinkedEntityIds([canonicalId])
+            reloadMatches()
+          }}
+          onEditTopic={pageTopicId !== null && focusedEntityId === null ? () => setTopicEditing(true) : undefined}
+          onRemoveAssociation={
+            focusedEntityId !== null && focusedEntityId !== pageTopicId && linkedSurfaceForm !== null
+              ? async () => {
+                  await api.mentions.deleteByTriple(focusedEntityId, sourceId, linkedSurfaceForm)
+                  setFocusedEntityId(null)
+                  setLinkedEntityIds([])
+                  setLinkedSurfaceForm(null)
+                  await reloadMatches()
+                }
+              : undefined
+          }
         />
         <ActionsSection
           source={source}
           onUpdate={setSource}
-          onConfirmAll={handleConfirmAll}
         />
       </div>
 
@@ -630,7 +698,7 @@ export function SourceViewer() {
           match={popover.match}
           pos={popover.pos}
           sourceId={sourceId}
-          onConfirmed={reloadMatches}
+          onConfirmed={async () => { await ensureSourceActive(); reloadMatches() }}
           onDismiss={() => setPopover(null)}
         />
       )}
@@ -639,7 +707,7 @@ export function SourceViewer() {
           match={popover.match}
           pos={popover.pos}
           sourceId={sourceId}
-          onConfirmed={reloadMatches}
+          onConfirmed={async () => { await ensureSourceActive(); reloadMatches() }}
           onDismiss={() => setPopover(null)}
         />
       )}
@@ -650,7 +718,7 @@ export function SourceViewer() {
           sourceId={sourceId}
           activeEntityId={activeEntityId}
           linkedUrl={popover.linkedUrl}
-          onCreated={reloadMatches}
+          onCreated={async () => { await ensureSourceActive(); reloadMatches() }}
           onDismiss={() => setPopover(null)}
         />
       )}

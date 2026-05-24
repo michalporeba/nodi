@@ -4,7 +4,38 @@ import { api } from '../../api/client'
 import type { Source, Entity, EntityDetail, EntityType, WikidataCandidate, RelationshipResult, RelHop, EntitySearchLogEntry } from '../../api/types'
 import { PropertyPicker } from '../PropertyPicker'
 import { ClaimRow } from '../ClaimRow'
-import { useOntology, type SeedClaim } from '../../data/ontology'
+import { useOntology, getPropertyShape, type SeedClaim } from '../../data/ontology'
+
+// ─── Shared type-adder dropdown ──────────────────────────────────────────────
+
+function InlineTypeAdder({ classes, currentTypes, onAdd }: { classes: string[]; currentTypes: string[]; onAdd: (t: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const available = classes.filter(c => !currentTypes.includes(c))
+  if (available.length === 0) return null
+  return (
+    <span style={{ position: 'relative' }}>
+      <button
+        className="btn btn-ghost btn-sm"
+        style={{ fontSize: 10, padding: '1px 5px' }}
+        onClick={() => setOpen(o => !o)}
+        title="Add class"
+      >+ type</button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 200, background: 'var(--panel-bg, #fff)', border: '1px solid var(--content-border)', borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', minWidth: 130 }}>
+          {available.map(c => (
+            <div
+              key={c}
+              style={{ padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}
+              onMouseOver={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.08)')}
+              onMouseOut={e => (e.currentTarget.style.background = '')}
+              onClick={() => { onAdd(c); setOpen(false) }}
+            >{c}</div>
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
 
 // ─── Topic picker (used when no topic is set, or when changing) ───────────────
 
@@ -103,7 +134,7 @@ function TopicPicker({ source, suggestedText, onSet, onCancel }: TopicPickerProp
               <div>
                 <div className="entity-option-label">{e.primary_label}</div>
                 <div className="entity-option-meta">
-                  {e.type} · {e.mention_count} mentions
+                  {(e.types).join(', ')} · {e.mention_count} mentions
                 </div>
               </div>
             </div>
@@ -165,10 +196,11 @@ function TopicPicker({ source, suggestedText, onSet, onCancel }: TopicPickerProp
 interface TopicSectionProps {
   source: Source
   onUpdate: (source: Source) => void
+  editing: boolean
+  onEditingChange: (v: boolean) => void
 }
 
-export function TopicSection({ source, onUpdate }: TopicSectionProps) {
-  const [editing, setEditing] = useState(false)
+export function TopicSection({ source, onUpdate, editing, onEditingChange }: TopicSectionProps) {
   const [entity, setEntity] = useState<Entity | null>(null)
   const [loadingEntity, setLoadingEntity] = useState(false)
 
@@ -189,16 +221,15 @@ export function TopicSection({ source, onUpdate }: TopicSectionProps) {
     return (
       <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--content-border)', background: 'var(--panel-bg)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div className="section-heading" style={{ margin: 0 }}>Topic</div>
           {hasTopic && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>✕</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => onEditingChange(false)}>✕</button>
           )}
         </div>
         <TopicPicker
           source={source}
           suggestedText={source.title ?? undefined}
-          onSet={updated => { onUpdate(updated); setEditing(false) }}
-          onCancel={hasTopic ? () => setEditing(false) : undefined}
+          onSet={updated => { onUpdate(updated); onEditingChange(false) }}
+          onCancel={hasTopic ? () => onEditingChange(false) : undefined}
         />
       </div>
     )
@@ -208,15 +239,13 @@ export function TopicSection({ source, onUpdate }: TopicSectionProps) {
     <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--content-border)', background: 'var(--panel-bg)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="section-heading" style={{ margin: '0 0 4px' }}>Topic</div>
           {entity ? (
             <>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{entity.primary_label}</div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                <span className={`badge badge-${entity.type}`}>{entity.type}</span>
-                {entity.external_ids?.find(x => x.system === 'wikidata' && x.confirmed)?.value && (
-                  <span style={{ marginLeft: 6 }}>{entity.external_ids.find(x => x.system === 'wikidata' && x.confirmed)!.value}</span>
-                )}
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {(entity.types).map(t => (
+                  <span key={t} className={`badge badge-${t}`}>{t}</span>
+                ))}
               </div>
             </>
           ) : loadingEntity ? (
@@ -228,7 +257,7 @@ export function TopicSection({ source, onUpdate }: TopicSectionProps) {
             </div>
           ) : null}
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)} style={{ flexShrink: 0 }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => onEditingChange(true)} style={{ flexShrink: 0 }}>
           ✎
         </button>
       </div>
@@ -246,17 +275,20 @@ interface ActiveTopicSectionProps {
   onSwitch: (entityId: number) => void
   onClear: () => void
   onLinkedAdded: (entityId: number) => void
+  onMerged?: (canonicalId: number) => void
+  onEditTopic?: () => void
+  onRemoveAssociation?: () => Promise<void>
 }
 
 export function ActiveTopicSection({
-  source, focusedEntityId, linkedEntityIds, linkedSurfaceForm, onSwitch, onClear, onLinkedAdded,
+  source, focusedEntityId, linkedEntityIds, linkedSurfaceForm, onSwitch, onClear, onLinkedAdded, onMerged, onEditTopic, onRemoveAssociation,
 }: ActiveTopicSectionProps) {
   const pageTopicId = source.subject_confirmed ? source.subject_entity_id : null
   const activeEntityId = focusedEntityId ?? pageTopicId
   const isFocusing = focusedEntityId !== null && focusedEntityId !== pageTopicId
   const showSwitcher =
     focusedEntityId !== null &&
-    linkedEntityIds.length >= 1 &&
+    linkedEntityIds.length >= 2 &&
     linkedSurfaceForm !== null &&
     linkedEntityIds.includes(focusedEntityId)
 
@@ -280,11 +312,27 @@ export function ActiveTopicSection({
           Active topic
           {!isFocusing && <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>(page topic)</span>}
         </div>
-        {isFocusing && (
-          <button className="btn btn-ghost btn-sm" onClick={onClear} title="Back to page topic">
-            ← page
+        {isFocusing ? (
+          <div style={{ display: 'flex', gap: 4 }}>
+            {onRemoveAssociation && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={onRemoveAssociation}
+                title="Unconfirm this mention. The entity stays; the highlight returns to suggested."
+                style={{ color: '#ef4444', fontSize: 11 }}
+              >
+                Remove association
+              </button>
+            )}
+            <button className="btn btn-ghost btn-sm" onClick={onClear} title="Back to page topic">
+              ← page
+            </button>
+          </div>
+        ) : onEditTopic ? (
+          <button className="btn btn-ghost btn-sm" onClick={onEditTopic} title="Edit page topic">
+            ✎
           </button>
-        )}
+        ) : null}
       </div>
 
       {showSwitcher && (
@@ -295,6 +343,7 @@ export function ActiveTopicSection({
           sourceId={source.id}
           onSwitch={onSwitch}
           onAdded={onLinkedAdded}
+          onMerged={onMerged ?? (() => {})}
         />
       )}
 
@@ -308,16 +357,18 @@ export function ActiveTopicSection({
 // Compact switcher for surface forms that map to multiple entities. Buttons
 // show only the entity type (the shared label is shown once, above), and there's
 // always a "+" affordance to attach another entity to the same surface form.
-function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, onAdded }: {
+function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, onAdded, onMerged }: {
   linkedIds: number[]
   activeId: number
   surfaceForm: string
   sourceId: number
   onSwitch: (id: number) => void
   onAdded: (entityId: number) => void
+  onMerged: (canonicalId: number) => void
 }) {
   const [entities, setEntities] = useState<Entity[]>([])
   const [adding, setAdding] = useState(false)
+  const [merging, setMerging] = useState(false)
   const [search, setSearch] = useState('')
   const [results, setResults] = useState<Entity[]>([])
   const [busy, setBusy] = useState(false)
@@ -372,39 +423,73 @@ function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, 
     }
   }
 
-  if (entities.length === 0) return null
+  async function mergeIntoCanonical(canonicalId: number) {
+    const canonical = entities.find(e => e.id === canonicalId)
+    const absorbed = entities.filter(e => e.id !== canonicalId)
+    if (!canonical || absorbed.length === 0) return
+    const names = absorbed.map(e => `"${e.primary_label}"`).join(', ')
+    if (!window.confirm(`Merge ${names} into "${canonical.primary_label}"? This cannot be undone.`)) return
+    setBusy(true)
+    try {
+      await api.entities.merge(canonicalId, absorbed.map(e => e.id))
+      setMerging(false)
+      onMerged(canonicalId)
+    } finally {
+      setBusy(false)
+    }
+  }
 
-  // Distinguish duplicate types with a small numeric suffix
-  const typeCounts = new Map<string, number>()
-  for (const e of entities) typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1)
+  if (entities.length === 0) return null
 
   return (
     <div style={{ padding: '0 16px 8px', display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
         <span style={{ color: '#94a3b8' }}>"{surfaceForm}" →</span>
-        {entities.map(e => {
-          const isDup = (typeCounts.get(e.type) ?? 0) > 1
+        {entities.filter(e => merging || e.id !== activeId).map(e => {
+          const entityTypes = e.types
           return (
             <button
               key={e.id}
               className={`btn btn-sm ${e.id === activeId ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => onSwitch(e.id)}
-              style={{ padding: '2px 8px', fontSize: 11 }}
-              title={e.primary_label}
+              onClick={() => merging ? mergeIntoCanonical(e.id) : onSwitch(e.id)}
+              style={{ padding: '2px 8px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
+              title={merging ? `Merge others into "${e.primary_label}"` : `${e.primary_label} (id: ${e.id})`}
             >
-              {e.type}{isDup && <span style={{ opacity: 0.7, marginLeft: 4 }}>#{e.id}</span>}
+              {merging && <span style={{ fontSize: 9, color: '#f59e0b' }}>→</span>}
+              <span>{e.primary_label}</span>
+              {entityTypes.map(t => (
+                <span key={t} className={`badge badge-${t}`} style={{ fontSize: 9 }}>{t}</span>
+              ))}
             </button>
           )
         })}
+        {entities.length >= 2 && (
+          <button
+            className={`btn btn-ghost btn-sm ${merging ? 'btn-warning' : ''}`}
+            onClick={() => { setMerging(m => !m); setAdding(false) }}
+            style={{ padding: '2px 6px', fontSize: 11, color: merging ? '#f59e0b' : undefined }}
+            title={merging ? 'Cancel merge' : 'Merge duplicate entities'}
+            disabled={busy}
+          >
+            {merging ? '× cancel' : '⊕ merge'}
+          </button>
+        )}
         <button
           className="btn btn-ghost btn-sm"
-          onClick={() => setAdding(a => !a)}
+          onClick={() => { setAdding(a => !a); setMerging(false) }}
           style={{ padding: '2px 6px', fontSize: 11 }}
           title={adding ? 'Cancel' : 'Add another entity for this surface form'}
+          disabled={busy}
         >
           {adding ? '×' : '+'}
         </button>
       </div>
+
+      {merging && (
+        <div style={{ fontSize: 10, color: '#f59e0b', padding: '2px 0' }}>
+          Click an entity above to make it canonical — others will be merged into it.
+        </div>
+      )}
 
       {adding && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '2px 0 4px' }}>
@@ -430,7 +515,7 @@ function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, 
                   >
                     <div>
                       <div className="entity-option-label">{e.primary_label}</div>
-                      <div className="entity-option-meta">{e.type}{already && ' · already linked'}</div>
+                      <div className="entity-option-meta">{(e.types).join(', ')}{already && ' · already linked'}</div>
                     </div>
                   </div>
                 )
@@ -463,10 +548,9 @@ function LinkedSwitcher({ linkedIds, activeId, surfaceForm, sourceId, onSwitch, 
 interface ActionsSectionProps {
   source: Source
   onUpdate: (source: Source) => void
-  onConfirmAll: () => void
 }
 
-export function ActionsSection({ source, onUpdate, onConfirmAll }: ActionsSectionProps) {
+export function ActionsSection({ source, onUpdate }: ActionsSectionProps) {
   const [updating, setUpdating] = useState(false)
 
   async function handleStatusChange(status: Source['status']) {
@@ -494,9 +578,6 @@ export function ActionsSection({ source, onUpdate, onConfirmAll }: ActionsSectio
         </select>
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
-        <button className="btn btn-secondary btn-sm" onClick={onConfirmAll} style={{ flex: 1 }}>
-          ✓ Confirm suggestions
-        </button>
         <button
           className="btn btn-primary btn-sm"
           onClick={() => handleStatusChange('done')}
@@ -576,7 +657,6 @@ export function RelationshipConnector({
 
   return (
     <div style={{ padding: '8px 16px', borderTop: '1px solid var(--content-border)', borderBottom: '1px solid var(--content-border)', display: 'flex', flexDirection: 'column', gap: 6, background: 'rgba(99,102,241,0.04)' }}>
-      <div className="section-heading" style={{ margin: 0 }}>Relationship</div>
       {paths.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ fontSize: 11, color: '#94a3b8' }}>No claim links these yet.</div>
@@ -584,7 +664,7 @@ export function RelationshipConnector({
             <PropertyPicker
               value={property}
               onChange={setProperty}
-              subjectType={entities[pageTopicId]?.type as EntityType | undefined}
+              subjectTypes={entities[pageTopicId]?.types}
               placeholder="property (e.g. cast_member)"
               disabled={saving}
               onEnter={addDirect}
@@ -627,7 +707,7 @@ function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, 
   pageTopicId: number
   activeEntityId: number
   intermediateId?: number
-  entities: Record<number, { id: number; type: string; primary_label: string }>
+  entities: Record<number, { id: number; types: string[]; primary_label: string }>
   onSwitchActive: (id: number) => void
   onDeleteHop: (claimId: number) => void
 }) {
@@ -654,7 +734,7 @@ function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, 
   function entityChip(id: number, role: 'page' | 'intermediate' | 'active') {
     const e = entities[id]
     const label = e?.primary_label ?? `#${id}`
-    const type = e?.type ?? ''
+    const types = e?.types ?? []
     const clickable = role === 'intermediate'
     return (
       <div
@@ -669,7 +749,7 @@ function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, 
           textDecorationStyle: 'dotted',
         }}
       >
-        {label} <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>{type}</span>
+        {label} <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>{types.join(', ')}</span>
       </div>
     )
   }
@@ -677,22 +757,18 @@ function PathRow({ hops, pageTopicId, activeEntityId, intermediateId, entities, 
   if (hops.length === 1) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {entityChip(pageTopicId, 'page')}
         {renderArrow(hops[0], pageTopicId, activeEntityId)}
-        {entityChip(activeEntityId, 'active')}
       </div>
     )
   }
 
-  // 2-hop
+  // 2-hop: keep intermediate chip — it's not shown elsewhere
   const xId = intermediateId!
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      {entityChip(pageTopicId, 'page')}
       {renderArrow(hops[0], pageTopicId, xId)}
       {entityChip(xId, 'intermediate')}
       {renderArrow(hops[1], xId, activeEntityId)}
-      {entityChip(activeEntityId, 'active')}
     </div>
   )
 }
@@ -806,15 +882,37 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
   const [loading, setLoading] = useState(true)
   const [addingClaim, setAddingClaim] = useState(false)
   const [newClaim, setNewClaim] = useState({ property: '', value: '' })
+  const [claimEntityId, setClaimEntityId] = useState<number | null>(null)
+  const [claimEntitySearch, setClaimEntitySearch] = useState('')  // also used as display label after selection
+  const [claimEntityResults, setClaimEntityResults] = useState<Entity[]>([])
+  const [claimModeOverride, setClaimModeOverride] = useState<'text' | 'entity' | null>(null)
   const [addingLabel, setAddingLabel] = useState(false)
   const [newLabel, setNewLabel] = useState({ value: '', language: 'en' })
   const [addingEid, setAddingEid] = useState(false)
   const [newEid, setNewEid] = useState({ system: '', value: '', url: '' })
+  const ontology = useOntology()
+
+  const claimPropShape = getPropertyShape(ontology, newClaim.property.trim())
+  const defaultClaimMode: 'text' | 'entity' =
+    claimPropShape?.value_type === 'entity' ? 'entity'
+    : claimPropShape?.value_type === 'both' && (claimPropShape.class_range || claimPropShape.default_entity_type) ? 'entity'
+    : 'text'
+  const claimMode = claimModeOverride ?? defaultClaimMode
 
   useEffect(() => {
     setLoading(true)
     api.entities.get(entityId).then(setEntity).finally(() => setLoading(false))
   }, [entityId])
+
+  useEffect(() => {
+    setClaimEntityId(null); setClaimEntitySearch(''); setClaimEntityResults([]); setClaimModeOverride(null)
+  }, [newClaim.property])
+
+  useEffect(() => {
+    if (claimMode !== 'entity' || !claimEntitySearch.trim()) { setClaimEntityResults([]); return }
+    const t = setTimeout(() => { api.entities.list({ q: claimEntitySearch }).then(setClaimEntityResults) }, 250)
+    return () => clearTimeout(t)
+  }, [claimEntitySearch, claimMode])
 
   async function saveLabel() {
     if (!newLabel.value.trim() || !entity) return
@@ -834,14 +932,16 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
 
   async function handleAddClaim(e: React.FormEvent) {
     e.preventDefault()
-    if (!entity || !newClaim.property || !newClaim.value) return
-    await api.claims.create({
-      subject_entity_id: entity.id,
-      property: newClaim.property,
-      value: newClaim.value,
-      source_id: sourceId,
-    })
+    if (!entity || !newClaim.property) return
+    if (claimMode === 'entity') {
+      if (!claimEntityId) return
+      await api.claims.create({ subject_entity_id: entity.id, property: newClaim.property, object_entity_id: claimEntityId, source_id: sourceId })
+    } else {
+      if (!newClaim.value) return
+      await api.claims.create({ subject_entity_id: entity.id, property: newClaim.property, value: newClaim.value, source_id: sourceId })
+    }
     setNewClaim({ property: '', value: '' })
+    setClaimEntityId(null); setClaimEntitySearch(''); setClaimEntityResults([]); setClaimModeOverride(null)
     setAddingClaim(false)
     const updated = await api.entities.get(entity.id)
     setEntity(updated)
@@ -850,6 +950,22 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
   async function deleteClaim(id: number) {
     if (!entity) return
     await api.claims.delete(id)
+    const updated = await api.entities.get(entity.id)
+    setEntity(updated)
+  }
+
+  async function addType(typeName: string) {
+    if (!entity) return
+    await api.claims.create({ subject_entity_id: entity.id, property: 'instance_of', value: typeName })
+    const updated = await api.entities.get(entity.id)
+    setEntity(updated)
+  }
+
+  async function removeType(typeName: string) {
+    if (!entity) return
+    const claim = entity.claims.find(c => c.property === 'instance_of' && c.value === typeName)
+    if (!claim) return
+    await api.claims.delete(claim.id)
     const updated = await api.entities.get(entity.id)
     setEntity(updated)
   }
@@ -876,7 +992,15 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{entity.primary_label}</div>
-          <span className={`badge badge-${entity.type}`} style={{ marginTop: 4 }}>{entity.type}</span>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4, alignItems: 'center' }}>
+            {(entity.types).map(t => (
+              <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                <span className={`badge badge-${t}`}>{t}</span>
+                <button onClick={() => removeType(t)} style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0 2px', lineHeight: 1, fontSize: 11 }} title={`Remove ${t}`}>×</button>
+              </span>
+            ))}
+            <InlineTypeAdder classes={ontology?.classes ?? []} currentTypes={entity.types} onAdd={addType} />
+          </div>
         </div>
         <Link to={`/entities/${entity.id}`} className="btn btn-ghost btn-sm">
           Full view →
@@ -944,7 +1068,7 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
           <button className="btn btn-ghost btn-sm" onClick={() => setAddingEid(true)}>+ add ID</button>
           <WikidataSearch
             entityId={entity.id}
-            entityType={entity.type}
+            entityType={entity.types[0] ?? ''}
             priorSearch={entity.search_logs.find(s => s.system === 'wikidata') ?? null}
             onConfirmed={setEntity}
           />
@@ -954,11 +1078,11 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
       {/* Claims */}
       <div>
         <div className="section-heading">Claims</div>
-        {entity.claims.map(c => (
+        {entity.claims.filter(c => c.property !== 'instance_of').map(c => (
           <ClaimRow
             key={c.id}
             claim={c}
-            subjectType={entity.type}
+            subjectTypes={entity.types}
             onChanged={async () => { const u = await api.entities.get(entity.id); setEntity(u) }}
             onDeleted={() => deleteClaim(c.id)}
           />
@@ -969,10 +1093,43 @@ export function EntityDetailPanel({ entityId, sourceId }: EntityPanelProps) {
             <PropertyPicker
               value={newClaim.property}
               onChange={v => setNewClaim(p => ({ ...p, property: v }))}
-              subjectType={entity.type}
+              subjectTypes={entity.types}
               placeholder="Property (e.g. date_of_birth)"
             />
-            <input className="input" placeholder="Value" value={newClaim.value} onChange={e => setNewClaim(p => ({ ...p, value: e.target.value }))} />
+            {claimPropShape?.value_type === 'both' && (
+              <div style={{ display: 'flex', gap: 4, fontSize: 11 }}>
+                <button type="button" className={`btn btn-sm ${claimMode === 'entity' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setClaimModeOverride('entity')}>Entity</button>
+                <button type="button" className={`btn btn-sm ${claimMode === 'text' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setClaimModeOverride('text')}>Text</button>
+              </div>
+            )}
+            {claimMode === 'entity' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {claimEntityId ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    <span style={{ background: 'rgba(99,102,241,0.1)', borderRadius: 8, padding: '2px 10px' }}>
+                      {claimEntitySearch || `#${claimEntityId}`}
+                    </span>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setClaimEntityId(null); setClaimEntitySearch('') }}>✕</button>
+                  </div>
+                ) : (
+                  <>
+                    <input className="input" placeholder={`Search ${claimPropShape?.class_range ?? 'entity'}…`} value={claimEntitySearch} onChange={e => setClaimEntitySearch(e.target.value)} autoFocus />
+                    {claimEntityResults.length > 0 && (
+                      <div style={{ maxHeight: 100, overflowY: 'auto', border: '1px solid var(--content-border)', borderRadius: 4 }}>
+                        {claimEntityResults.slice(0, 5).map(e => (
+                          <div key={e.id} className="entity-option" onClick={() => { setClaimEntityId(e.id); setClaimEntitySearch(e.primary_label); setClaimEntityResults([]) }}>
+                            <div className="entity-option-label">{e.primary_label}</div>
+                            <div className="entity-option-meta">{(e.types).join(', ')}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <input className="input" placeholder="Value" value={newClaim.value} onChange={e => setNewClaim(p => ({ ...p, value: e.target.value }))} />
+            )}
             <div style={{ display: 'flex', gap: 6 }}>
               <button className="btn btn-primary btn-sm" type="submit">Save</button>
               <button className="btn btn-ghost btn-sm" type="button" onClick={() => setAddingClaim(false)}>Cancel</button>

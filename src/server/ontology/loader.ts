@@ -44,11 +44,15 @@ export interface CompiledOntology {
   pid_map: Record<string, string>
 }
 
+const BASE_PATH    = resolve(process.cwd(), 'data/ontology/base.ttl')
 const DEFAULT_PATH = resolve(process.cwd(), 'data/ontology/welsh-film-tv.ttl')
 
 function ontologyPaths(): string[] {
-  if (!process.env.NODI_ONTOLOGY) return [DEFAULT_PATH]
-  return process.env.NODI_ONTOLOGY.split(',').map(p => resolve(process.cwd(), p.trim())).filter(Boolean)
+  const domain = process.env.NODI_ONTOLOGY
+    ? process.env.NODI_ONTOLOGY.split(',').map(p => resolve(process.cwd(), p.trim())).filter(Boolean)
+    : [DEFAULT_PATH]
+  // base.ttl is always prepended; dedup in case the user explicitly listed it
+  return [BASE_PATH, ...domain.filter(p => p !== BASE_PATH)]
 }
 
 let cached: CompiledOntology | null = null
@@ -229,5 +233,6 @@ export function watchOntology(): void {
 }
 
 export function ontologySourcePath(): string {
-  return cachedPath ?? ontologyPath()
+  const paths = ontologyPaths()
+  return cachedPath ?? paths.find(p => p !== BASE_PATH) ?? paths[0]
 }

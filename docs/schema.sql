@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS SourceLink (
 
 CREATE TABLE IF NOT EXISTS Entity (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  type        TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  -- class membership is recorded via instance_of Claim rows (property = 'instance_of', value = class name)
 );
 
 -- All names, titles, aliases, translations for an entity
